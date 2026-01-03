@@ -1,0 +1,26 @@
+spring:
+  application:
+    name: orders
+
+  datasource:
+    url: jdbc:postgresql://localhost:5442/flashsale
+    username: userservice
+    password: userservice
+    driver-class-name: org.postgresql.Driver
+
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: false
+    validate-on-migrate: true
+    clean-disabled: true
+
+  jpa:
+    open-in-view: false
+    defer-datasource-initialization: false
+    hibernate:
+      ddl-auto: none
+
+logging:
+  level:
+    org.flywaydb: DEBUG
