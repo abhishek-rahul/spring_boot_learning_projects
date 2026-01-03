@@ -1,0 +1,20 @@
+server:
+  port: 8080
+
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5442/flashsale
+    username: userservice
+    password: userservice
+  jpa:
+    hibernate:
+      ddl-auto: update   # for learning; in real prod use Flyway
+    properties:
+      hibernate:
+        format_sql: true
+    open-in-view: false
+
+logging:
+  level:
+    org.hibernate.SQL: debug
+    org.hibernate.orm.jdbc.bind: trace
