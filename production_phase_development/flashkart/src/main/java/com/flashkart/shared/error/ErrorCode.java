@@ -12,5 +12,12 @@ public enum ErrorCode {
     // domain-specific placeholders (future)
     INVENTORY_CONFLICT,
     PAYMENT_PROVIDER_DOWN,
-    ORDER_NOT_CANCELLABLE
+    ORDER_NOT_CANCELLABLE,
+
+
+    // identity domain
+    USER_ALREADY_EXISTS,
+    INVALID_CREDENTIALS,
+    USER_NOT_FOUND,
+    USER_BLOCKED
 }

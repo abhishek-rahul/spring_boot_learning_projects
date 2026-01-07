@@ -48,5 +48,21 @@ public class User {
         this.createdAt = Instant.now();
     }
 
+    public UUID getId() {
+        return id;
+    }
+
+    public String getEmail() {
+        return email;
+    }
+
+    public Set<Role> getRoles() {
+        return roles;
+    }
+    public String getPasswordHash() {
+        return passwordHash;
+    }
+
+    
     // getters only (immutability mindset)
 }
