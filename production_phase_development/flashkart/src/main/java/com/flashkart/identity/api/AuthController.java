@@ -3,8 +3,11 @@ package com.flashkart.identity.api;
 import com.flashkart.identity.api.dto.LoginRequest;
 import com.flashkart.identity.api.dto.SignupRequest;
 import com.flashkart.identity.api.dto.UserResponse;
+import com.flashkart.identity.api.dto.AuthResponse;
+import com.flashkart.identity.api.dto.TokenResponse;
 import com.flashkart.identity.domain.User;
 import com.flashkart.identity.service.AuthService;
+import com.flashkart.identity.service.JwtService;
 import com.flashkart.shared.api.ApiResponse; // adjust if your ApiResponse path differs
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.*;
@@ -18,24 +21,43 @@ import org.slf4j.MDC;
 public class AuthController {
 
     private final AuthService authService;
-
-    public AuthController(AuthService authService) {
+    private final JwtService jwtService;
+    public AuthController(AuthService authService, JwtService jwtService) {
         this.authService = authService;
+        this.jwtService = jwtService;
     }
 
     @PostMapping("/signup")
-    public ApiResponse<UserResponse> signup(@Valid @RequestBody SignupRequest req) {
+    public ApiResponse<AuthResponse> signup(@Valid @RequestBody SignupRequest req) {
         User u = authService.signup(req.getEmail(), req.getPassword());
-	String requestId = MDC.get(CorrelationId.MDC_KEY);
-        return ApiResponse.ok("v1",requestId,toResponse(u));
+        String token = jwtService.generateAccessToken(u);
+        TokenResponse tokenResponse = new TokenResponse(token, jwtService.accessTokenTtlSeconds());
+        
+        String requestId = MDC.get(CorrelationId.MDC_KEY);
+        
+        AuthResponse response = new AuthResponse(
+            toResponse(u),
+            tokenResponse
+        );
+        return ApiResponse.ok("v1", requestId, response);
     }
-
+    
     @PostMapping("/login")
-    public ApiResponse<UserResponse> login(@Valid @RequestBody LoginRequest req) {
-	String requestId = MDC.get(CorrelationId.MDC_KEY);
+    public ApiResponse<AuthResponse> login(@Valid @RequestBody LoginRequest req) {
         User u = authService.login(req.getEmail(), req.getPassword());
-        return ApiResponse.ok("v1",requestId,toResponse(u));
+        String token = jwtService.generateAccessToken(u);
+        TokenResponse tokenResponse = new TokenResponse(token, jwtService.accessTokenTtlSeconds());
+        
+        String requestId = MDC.get(CorrelationId.MDC_KEY);
+        
+        AuthResponse response = new AuthResponse(
+            toResponse(u),
+            tokenResponse
+        );
+        return ApiResponse.ok("v1", requestId, response);
+    
     }
+    
 
     private UserResponse toResponse(User u) {
         return new UserResponse(

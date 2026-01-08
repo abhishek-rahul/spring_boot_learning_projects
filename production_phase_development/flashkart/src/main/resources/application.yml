@@ -38,3 +38,11 @@ info:
     name: FlashKart
     description: Production-grade e-commerce platform
     version: 0.0.1
+
+app:
+  security:
+    jwt:
+      # IMPORTANT: at least 32+ chars (256-bit). Better: base64 secret.
+      secret: "kP9z$vR2#qW7!bF0@jH5%sD3^gC8&xL1*tN4_"
+      issuer: "flashkart"
+      access-token-ttl-minutes: 15
