@@ -52,6 +52,10 @@ public class User {
         return id;
     }
 
+    public UserStatus getStatus() {
+        return status;
+    }
+
     public String getEmail() {
         return email;
     }

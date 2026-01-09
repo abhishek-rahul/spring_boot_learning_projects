@@ -14,6 +14,17 @@ spring:
 
   flyway:
     enabled: true
+  
+  data:
+    redis:
+      host: localhost
+      port: 6378
+
+  session:
+    store-type: redis
+    timeout: 30m
+    redis:
+      namespace: flashkart:sessions
 
 
 springdoc:
@@ -49,3 +60,12 @@ app:
     refresh-token:
       ttl-days: 14
       pepper: "FBwbxboeE8aZkxgjK38WpfsOumoQ2Q8N"
+
+server:
+  servlet:
+    session:
+      cookie:
+        name: FK_ADMIN_SESSION
+        http-only: true
+        secure: false   # prod HTTPS me true
+        same-site: lax
