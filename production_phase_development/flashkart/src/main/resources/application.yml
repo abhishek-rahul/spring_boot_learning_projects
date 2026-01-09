@@ -46,3 +46,6 @@ app:
       secret: "kP9z$vR2#qW7!bF0@jH5%sD3^gC8&xL1*tN4_"
       issuer: "flashkart"
       access-token-ttl-minutes: 15
+    refresh-token:
+      ttl-days: 14
+      pepper: "FBwbxboeE8aZkxgjK38WpfsOumoQ2Q8N"

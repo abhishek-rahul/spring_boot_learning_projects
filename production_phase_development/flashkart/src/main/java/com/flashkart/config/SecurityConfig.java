@@ -25,93 +25,99 @@ import org.springframework.security.web.SecurityFilterChain;
 @EnableMethodSecurity
 public class SecurityConfig {
 
-    @Value("${app.security.jwt.secret}")
-    private String secret;
+        @Value("${app.security.jwt.secret}")
+        private String secret;
 
-    @Bean
-    public SecurityFilterChain apiSecurity(HttpSecurity http,
-            ApiAuthEntryPoint entryPoint,
-            ApiAccessDeniedHandler accessDeniedHandler) throws Exception {
+        @Bean
+        public SecurityFilterChain apiSecurity(HttpSecurity http,
+                        ApiAuthEntryPoint entryPoint,
+                        ApiAccessDeniedHandler accessDeniedHandler) throws Exception {
 
-        http
-                // API -> stateless
-                .csrf(csrf -> csrf.disable())
+                http
+                                // API -> stateless
+                                .csrf(csrf -> csrf.disable())
 
-                .authorizeHttpRequests(auth -> auth
-                        .requestMatchers(
-                                "/api/v1/auth/**",
-                                "/actuator/health",
-                                "/actuator/info",
-                                "/v3/api-docs/**",
-                                "/swagger-ui/**",
-                                "/swagger-ui.html")
-                        .permitAll()
-                        .requestMatchers("/api/**").authenticated()
-                        .anyRequest().permitAll())
+                                .authorizeHttpRequests(auth -> auth
+                                                .requestMatchers(
+                                                                "/api/v1/auth/**",
+                                                                "/actuator/health",
+                                                                "/actuator/info",
+                                                                "/v3/api-docs/**",
+                                                                "/swagger-ui/**",
+                                                                "/swagger-ui.html")
+                                                .permitAll()
+                                                .requestMatchers("/api/v1/auth/logout-all").authenticated() // MUST be
+                                                                                                            // before
+                                                                                                            // permitAll
+                                                                                                            // auth/**
 
-                .exceptionHandling(ex -> ex
-                        .authenticationEntryPoint(entryPoint)
-                        .accessDeniedHandler(accessDeniedHandler))
+                                                .requestMatchers("/api/v1/auth/**").permitAll()
+                                                .requestMatchers("/api/**").authenticated()
 
-                .oauth2ResourceServer(oauth -> oauth
-                        .jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAuthConverter())));
+                                                .anyRequest().permitAll())
 
-        return http.build();
-    }
+                                .exceptionHandling(ex -> ex
+                                                .authenticationEntryPoint(entryPoint)
+                                                .accessDeniedHandler(accessDeniedHandler))
 
-    /*
-     * @Bean
-     * public JwtDecoder jwtDecoder() {
-     * // HS256 secret key
-     * var key = new SecretKeySpec(secret.getBytes(), "HmacSHA256");
-     * return NimbusJwtDecoder.withSecretKey(key).build();
-     * }
-     */
+                                .oauth2ResourceServer(oauth -> oauth
+                                                .jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAuthConverter())));
 
-    @Bean
-    public JwtDecoder jwtDecoder() {
-        String s = secret.trim();
-        var key = new SecretKeySpec(s.getBytes(StandardCharsets.UTF_8), "HmacSHA256");
-        return NimbusJwtDecoder.withSecretKey(key).build();
-    }
+                return http.build();
+        }
 
-    @Bean
-    public JwtEncoder jwtEncoder() {
-        String s = secret.trim();
-        var key = new SecretKeySpec(s.getBytes(StandardCharsets.UTF_8), "HmacSHA256");
-    
-        var jwk = new OctetSequenceKey.Builder(key.getEncoded())
-                .keyID("flashkart-signing-key")
-                .algorithm(JWSAlgorithm.HS256)
-                .build();
-    
-        var jwks = new ImmutableJWKSet<>(new JWKSet(jwk));
-        return new NimbusJwtEncoder(jwks);
-    }
-    
+        /*
+         * @Bean
+         * public JwtDecoder jwtDecoder() {
+         * // HS256 secret key
+         * var key = new SecretKeySpec(secret.getBytes(), "HmacSHA256");
+         * return NimbusJwtDecoder.withSecretKey(key).build();
+         * }
+         */
 
-    /*
-     * @Bean
-     * public JwtEncoder jwtEncoder() {
-     * var key = new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8),
-     * "HmacSHA256");
-     * var jwk = new OctetSequenceKey.Builder(key.getEncoded())
-     * .keyID("flashkart-signing-key")
-     * .algorithm(com.nimbusds.jose.JWSAlgorithm.HS256) // Add this line
-     * .build();
-     * var jwks = new ImmutableJWKSet<>(new JWKSet(jwk));
-     * return new NimbusJwtEncoder(jwks);
-     * }
-     */
+        @Bean
+        public JwtDecoder jwtDecoder() {
+                String s = secret.trim();
+                var key = new SecretKeySpec(s.getBytes(StandardCharsets.UTF_8), "HmacSHA256");
+                return NimbusJwtDecoder.withSecretKey(key).build();
+        }
 
-    private JwtAuthenticationConverter jwtAuthConverter() {
-        // We store roles in claim "roles" as "ROLE_USER ROLE_ADMIN"
-        JwtGrantedAuthoritiesConverter gac = new JwtGrantedAuthoritiesConverter();
-        gac.setAuthoritiesClaimName("roles");
-        gac.setAuthorityPrefix(""); // because roles already have ROLE_
+        @Bean
+        public JwtEncoder jwtEncoder() {
+                String s = secret.trim();
+                var key = new SecretKeySpec(s.getBytes(StandardCharsets.UTF_8), "HmacSHA256");
 
-        JwtAuthenticationConverter converter = new JwtAuthenticationConverter();
-        converter.setJwtGrantedAuthoritiesConverter(gac);
-        return converter;
-    }
+                var jwk = new OctetSequenceKey.Builder(key.getEncoded())
+                                .keyID("flashkart-signing-key")
+                                .algorithm(JWSAlgorithm.HS256)
+                                .build();
+
+                var jwks = new ImmutableJWKSet<>(new JWKSet(jwk));
+                return new NimbusJwtEncoder(jwks);
+        }
+
+        /*
+         * @Bean
+         * public JwtEncoder jwtEncoder() {
+         * var key = new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8),
+         * "HmacSHA256");
+         * var jwk = new OctetSequenceKey.Builder(key.getEncoded())
+         * .keyID("flashkart-signing-key")
+         * .algorithm(com.nimbusds.jose.JWSAlgorithm.HS256) // Add this line
+         * .build();
+         * var jwks = new ImmutableJWKSet<>(new JWKSet(jwk));
+         * return new NimbusJwtEncoder(jwks);
+         * }
+         */
+
+        private JwtAuthenticationConverter jwtAuthConverter() {
+                // We store roles in claim "roles" as "ROLE_USER ROLE_ADMIN"
+                JwtGrantedAuthoritiesConverter gac = new JwtGrantedAuthoritiesConverter();
+                gac.setAuthoritiesClaimName("roles");
+                gac.setAuthorityPrefix(""); // because roles already have ROLE_
+
+                JwtAuthenticationConverter converter = new JwtAuthenticationConverter();
+                converter.setJwtGrantedAuthoritiesConverter(gac);
+                return converter;
+        }
 }

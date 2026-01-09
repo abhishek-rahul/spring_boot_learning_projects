@@ -15,18 +15,6 @@ public class SecurityBeansConfig {
         return new BCryptPasswordEncoder();
     }
 
-
-    /* 
-    @Bean
-    @Primary
-    public ObjectMapper objectMapper() {
-        ObjectMapper mapper = new ObjectMapper();
-        // You can customize the ObjectMapper here if needed
-        // For example: mapper.setPropertyNamingStrategy(PropertyNamingStrategies.SNAKE_CASE);
-        return mapper;
-    }
-        */
-
     @Bean
     @Primary
     public ObjectMapper objectMapper() {
