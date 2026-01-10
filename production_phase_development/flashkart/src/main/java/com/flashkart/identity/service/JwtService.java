@@ -42,6 +42,7 @@ public class JwtService {
                 .issuedAt(now)
                 .expiresAt(exp)
                 .subject(user.getId().toString()) // subject = userId
+                .claim("userId", user.getId())
                 .claim("email", user.getEmail())
                 .claim("roles", roles)
                 .build();

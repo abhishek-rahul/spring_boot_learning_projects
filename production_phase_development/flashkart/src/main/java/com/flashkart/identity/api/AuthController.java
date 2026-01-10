@@ -168,7 +168,7 @@ public class AuthController {
         return new UserResponse(
                 u.getId(),
                 u.getEmail(),
-                u.getRoles().stream().map(Enum::name).collect(Collectors.toSet())
+                u.getRoles()
         );
     }
 }
