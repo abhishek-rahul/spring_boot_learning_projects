@@ -13,11 +13,12 @@ public class FlashkartApplication {
 		logger.info("Starting Flashkart Application...");
 		SpringApplication.run(FlashkartApplication.class, args);
 		logger.info("Flashkart Application started successfully");
-
+		/* 
 		logger.debug("Debug message");
 		logger.trace("Trace message");
 		logger.warn("Warn message");
 		logger.error("Error message");
+		*/
 	}
 
 }

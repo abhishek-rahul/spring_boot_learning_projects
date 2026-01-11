@@ -1,11 +1,25 @@
 package com.flashkart.identity.api.dto;
 
 public class TokenResponse {
-    public String accessToken;
-    public String refreshToken;
+    private String accessToken;
+    private String tokenType;
+    private long expiresIn;
 
-    public TokenResponse(String a, String r) {
-        this.accessToken = a;
-        this.refreshToken = r;
+
+    private String refreshToken;
+    private long refreshExpiresIn;
+
+    public TokenResponse(String accessToken, long expiresIn,String refreshToken, long refreshExpiresIn) {
+        this.accessToken = accessToken;
+        this.tokenType = "Bearer";
+        this.expiresIn = expiresIn;
+        this.refreshToken = refreshToken;
+        this.refreshExpiresIn = refreshExpiresIn;
     }
+
+    public String getAccessToken() { return accessToken; }
+    public String getTokenType() { return tokenType; }
+    public long getExpiresIn() { return expiresIn; }
+    public String getRefreshToken() { return refreshToken; }
+    public long getRefreshExpiresIn() { return refreshExpiresIn; }
 }

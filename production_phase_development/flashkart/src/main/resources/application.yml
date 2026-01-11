@@ -1,3 +1,32 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5442/flashkart
+    username: userservice
+    password: userservice
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+
+  flyway:
+    enabled: true
+  
+  data:
+    redis:
+      host: localhost
+      port: 6378
+
+  session:
+    store-type: redis
+    timeout: 30m
+    redis:
+      namespace: flashkart:sessions
+
+
 springdoc:
   api-docs:
     path: /v3/api-docs
@@ -20,3 +49,38 @@ info:
     name: FlashKart
     description: Production-grade e-commerce platform
     version: 0.0.1
+
+app:
+  security:
+    jwt:
+      # IMPORTANT: at least 32+ chars (256-bit). Better: base64 secret.
+      secret: "kP9z$vR2#qW7!bF0@jH5%sD3^gC8&xL1*tN4_"
+      issuer: "flashkart"
+      access-token-ttl-minutes: 15
+    refresh-token:
+      ttl-days: 14
+      pepper: "FBwbxboeE8aZkxgjK38WpfsOumoQ2Q8N"
+    rate-limit:
+      auth:
+        window-seconds: 60
+        max-requests: 30       # /api/v1/auth/** per IP per minute
+      api:
+        window-seconds: 60
+        max-requests: 300      # /api/** per userId (or IP fallback) per minute
+      admin:
+        window-seconds: 60
+        max-requests: 60       # /api/v1/admin/** per IP per minute
+
+    login-throttle:
+      max-failures: 5
+      failure-window-seconds: 900   # 15 min me max failures
+      block-seconds: 900            # block 15 min
+
+server:
+  servlet:
+    session:
+      cookie:
+        name: FK_ADMIN_SESSION
+        http-only: true
+        secure: false   # prod HTTPS me true
+        same-site: lax
