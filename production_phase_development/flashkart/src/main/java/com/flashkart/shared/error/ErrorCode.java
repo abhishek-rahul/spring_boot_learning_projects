@@ -21,4 +21,7 @@ public enum ErrorCode {
     USER_NOT_FOUND,
     USER_BLOCKED,
     USER_NOT_ACTIVE,
+
+    // security domain
+    LOGIN_THROTTLED,
 }

@@ -54,6 +54,7 @@ public class GlobalExceptionHandler {
             case FORBIDDEN -> HttpStatus.FORBIDDEN;
             case UNAUTHORIZED -> HttpStatus.UNAUTHORIZED;
             case RATE_LIMITED -> HttpStatus.TOO_MANY_REQUESTS;
+            case LOGIN_THROTTLED -> HttpStatus.TOO_MANY_REQUESTS; 
             default -> HttpStatus.BAD_REQUEST;
         };
 

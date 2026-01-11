@@ -28,6 +28,10 @@ import org.springframework.security.oauth2.server.resource.authentication.JwtGra
 import org.springframework.security.web.SecurityFilterChain;
 
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import com.flashkart.shared.security.ratelimit.RateLimitFilter;
+import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
+
 
 @Configuration
 @EnableMethodSecurity
@@ -42,12 +46,15 @@ public class SecurityConfig {
     // -------------------------
     @Bean
     @Order(1)
-    public SecurityFilterChain adminSecurity(HttpSecurity http) throws Exception {
+    public SecurityFilterChain adminSecurity(HttpSecurity http,
+                                             RateLimitFilter rateLimitFilter) throws Exception {
+
         http
             .securityMatcher("/api/v1/admin/**")
-
+        
             // session-based
             .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED))
+            .addFilterBefore(rateLimitFilter, UsernamePasswordAuthenticationFilter.class)
 
             // CSRF ON (browser-safe). Token cookie -> header pattern (XSRF-TOKEN / X-XSRF-TOKEN)
             .csrf(csrf -> csrf
@@ -76,14 +83,16 @@ public class SecurityConfig {
     // -------------------------
     @Bean
     @Order(2)
-        public SecurityFilterChain apiSecurity(HttpSecurity http,
-                        ApiAuthEntryPoint entryPoint,
-                        ApiAccessDeniedHandler accessDeniedHandler) throws Exception {
+    public SecurityFilterChain apiSecurity(HttpSecurity http,
+                                           RateLimitFilter rateLimitFilter,
+                                           ApiAuthEntryPoint entryPoint,
+                                           ApiAccessDeniedHandler accessDeniedHandler) throws Exception {
 
                 http
             .securityMatcher("/api/**")
                                 // API -> stateless
 				.sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                                .addFilterBefore(rateLimitFilter, BearerTokenAuthenticationFilter.class)
                                 .csrf(csrf -> csrf.disable())
 
                                 .authorizeHttpRequests(auth -> auth

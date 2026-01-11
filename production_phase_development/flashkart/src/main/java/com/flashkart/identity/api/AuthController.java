@@ -24,6 +24,8 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
 import java.util.stream.Collectors;
+import com.flashkart.shared.security.ratelimit.RequestKeyUtil;
+import com.flashkart.shared.security.ratelimit.LoginThrottleService;
 
 @RestController
 @RequestMapping("/api/v1/auth")
@@ -33,17 +35,20 @@ public class AuthController {
     private final JwtService jwtService;
     private final RefreshTokenService refreshTokenService;
     private final UserRepository userRepository; // refresh flow needs user claims
+    private final LoginThrottleService loginThrottleService;
 
     public AuthController(
             AuthService authService,
             JwtService jwtService,
             RefreshTokenService refreshTokenService,
-            UserRepository userRepository
+            UserRepository userRepository,
+            LoginThrottleService loginThrottleService
     ) {
         this.authService = authService;
         this.jwtService = jwtService;
         this.refreshTokenService = refreshTokenService;
         this.userRepository = userRepository;
+        this.loginThrottleService = loginThrottleService;
     }
 
     // -------------------------
@@ -60,9 +65,26 @@ public class AuthController {
     // -------------------------
     @PostMapping("/login")
     public ApiResponse<AuthResponse> login(@Valid @RequestBody LoginRequest req, HttpServletRequest httpReq) {
-        User u = authService.login(req.getEmail(), req.getPassword());
-        return buildAuthResponse(u, httpReq);
+        String ip = RequestKeyUtil.clientIp(httpReq);
+    
+        // block check first
+        loginThrottleService.checkAllowed(req.getEmail(), ip);
+    
+        try {
+            User u = authService.login(req.getEmail(), req.getPassword());
+            loginThrottleService.onSuccess(req.getEmail(), ip);
+            return buildAuthResponse(u, httpReq);
+        } catch (BusinessException ex) {
+            // only count failures for auth-related failures
+            if (ex.getErrorCode() == ErrorCode.INVALID_CREDENTIALS
+                    || ex.getErrorCode() == ErrorCode.USER_NOT_FOUND
+                    || ex.getErrorCode() == ErrorCode.USER_BLOCKED) {
+                loginThrottleService.onFailure(req.getEmail(), ip);
+            }
+            throw ex;
+        }
     }
+    
 
     // -------------------------
     // REFRESH -> rotate refresh token + new access token

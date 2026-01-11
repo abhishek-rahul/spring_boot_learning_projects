@@ -60,6 +60,21 @@ app:
     refresh-token:
       ttl-days: 14
       pepper: "FBwbxboeE8aZkxgjK38WpfsOumoQ2Q8N"
+    rate-limit:
+      auth:
+        window-seconds: 60
+        max-requests: 30       # /api/v1/auth/** per IP per minute
+      api:
+        window-seconds: 60
+        max-requests: 300      # /api/** per userId (or IP fallback) per minute
+      admin:
+        window-seconds: 60
+        max-requests: 60       # /api/v1/admin/** per IP per minute
+
+    login-throttle:
+      max-failures: 5
+      failure-window-seconds: 900   # 15 min me max failures
+      block-seconds: 900            # block 15 min
 
 server:
   servlet:
