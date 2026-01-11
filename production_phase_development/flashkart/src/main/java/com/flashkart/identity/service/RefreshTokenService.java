@@ -1,9 +1,10 @@
 package com.flashkart.identity.service;
 
 import com.flashkart.identity.domain.RefreshToken;
-import com.flashkart.identity.domain.IdentityErrorCodes;
+import com.flashkart.identity.domain.User;
 import com.flashkart.shared.error.ErrorCode;
 import com.flashkart.identity.infra.RefreshTokenRepository;
+import com.flashkart.identity.infra.UserRepository;
 import com.flashkart.shared.error.BusinessException; // adjust to your package
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -20,16 +21,19 @@ public class RefreshTokenService {
 
     private final RefreshTokenRepository repo;
     private final TokenHashService hashService;
+    private final UserRepository userRepository;
     private final long ttlDays;
     private final SecureRandom random = new SecureRandom();
 
     public RefreshTokenService(
             RefreshTokenRepository repo,
             TokenHashService hashService,
+            UserRepository userRepository,
             @Value("${app.security.refresh-token.ttl-days}") long ttlDays
     ) {
         this.repo = repo;
         this.hashService = hashService;
+        this.userRepository = userRepository;
         this.ttlDays = ttlDays;
     }
 
@@ -102,6 +106,30 @@ public class RefreshTokenService {
         byte[] bytes = new byte[48]; // 64-ish chars base64url
         random.nextBytes(bytes);
         return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+    }
+
+    /**
+     * Get user from refresh token
+     * Extracted from AuthController to maintain Clean Architecture
+     */
+    public User getUserFromRefresh(String rawRefreshToken) {
+        UUID userId = getUserIdFromRefresh(rawRefreshToken);
+        return userRepository.findById(userId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND, "User Not Found", false));
+    }
+
+    /**
+     * Rotate refresh token and return both token and user
+     * Extracted from AuthController to maintain Clean Architecture
+     */
+    public record RefreshTokenWithUser(IssuedRefreshToken token, User user) {}
+
+    public RefreshTokenWithUser rotateWithUser(String rawRefreshToken, String ip, String userAgent) {
+        UUID userId = getUserIdFromRefresh(rawRefreshToken);
+        IssuedRefreshToken newToken = rotate(rawRefreshToken, ip, userAgent);
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND, "User Not Found", false));
+        return new RefreshTokenWithUser(newToken, user);
     }
 
     public record IssuedRefreshToken(String refreshToken, Instant expiresAt) {}

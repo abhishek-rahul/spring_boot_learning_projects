@@ -3,13 +3,11 @@ package com.flashkart.identity.api;
 import com.flashkart.identity.api.dto.*;
 import com.flashkart.identity.domain.User;
 import com.flashkart.identity.service.AuthService;
-import com.flashkart.identity.service.JwtService;
 import com.flashkart.identity.service.RefreshTokenService;
-import com.flashkart.identity.service.RefreshTokenService.IssuedRefreshToken;
-import com.flashkart.identity.infra.UserRepository;
 import com.flashkart.shared.api.ApiResponse;
 import com.flashkart.shared.error.ErrorCode;
 import com.flashkart.shared.observability.CorrelationId;
+import com.flashkart.shared.security.JwtClaimsExtractor;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
@@ -17,13 +15,9 @@ import com.flashkart.shared.error.BusinessException;
 
 import org.slf4j.MDC;
 import org.springframework.security.core.Authentication;
-import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.*;
 
-import java.time.Duration;
-import java.time.Instant;
 import java.util.UUID;
-import java.util.stream.Collectors;
 import com.flashkart.shared.security.ratelimit.RequestKeyUtil;
 import com.flashkart.shared.security.ratelimit.LoginThrottleService;
 
@@ -32,23 +26,23 @@ import com.flashkart.shared.security.ratelimit.LoginThrottleService;
 public class AuthController {
 
     private final AuthService authService;
-    private final JwtService jwtService;
     private final RefreshTokenService refreshTokenService;
-    private final UserRepository userRepository; // refresh flow needs user claims
     private final LoginThrottleService loginThrottleService;
+    private final AuthResponseBuilder authResponseBuilder;
+    private final JwtClaimsExtractor jwtClaimsExtractor;
 
     public AuthController(
             AuthService authService,
-            JwtService jwtService,
             RefreshTokenService refreshTokenService,
-            UserRepository userRepository,
-            LoginThrottleService loginThrottleService
+            LoginThrottleService loginThrottleService,
+            AuthResponseBuilder authResponseBuilder,
+            JwtClaimsExtractor jwtClaimsExtractor
     ) {
         this.authService = authService;
-        this.jwtService = jwtService;
         this.refreshTokenService = refreshTokenService;
-        this.userRepository = userRepository;
         this.loginThrottleService = loginThrottleService;
+        this.authResponseBuilder = authResponseBuilder;
+        this.jwtClaimsExtractor = jwtClaimsExtractor;
     }
 
     // -------------------------
@@ -57,7 +51,9 @@ public class AuthController {
     @PostMapping("/signup")
     public ApiResponse<AuthResponse> signup(@Valid @RequestBody SignupRequest req, HttpServletRequest httpReq) {
         User u = authService.signup(req.getEmail(), req.getPassword());
-        return buildAuthResponse(u, httpReq);
+        AuthResponse response = authResponseBuilder.buildAuthResponse(u, httpReq);
+        String requestId = MDC.get(CorrelationId.MDC_KEY);
+        return ApiResponse.ok("v1", requestId, response);
     }
 
     // -------------------------
@@ -73,7 +69,9 @@ public class AuthController {
         try {
             User u = authService.login(req.getEmail(), req.getPassword());
             loginThrottleService.onSuccess(req.getEmail(), ip);
-            return buildAuthResponse(u, httpReq);
+            AuthResponse response = authResponseBuilder.buildAuthResponse(u, httpReq);
+            String requestId = MDC.get(CorrelationId.MDC_KEY);
+            return ApiResponse.ok("v1", requestId, response);
         } catch (BusinessException ex) {
             // only count failures for auth-related failures
             if (ex.getErrorCode() == ErrorCode.INVALID_CREDENTIALS
@@ -92,36 +90,21 @@ public class AuthController {
     @PostMapping("/refresh")
     public ApiResponse<AuthResponse> refresh(@Valid @RequestBody RefreshRequest req, HttpServletRequest httpReq) {
 
-        // 1) Validate old refresh + get userId
-        UUID userId = refreshTokenService.getUserIdFromRefresh(req.getRefreshToken());
-
-        // 2) Rotate refresh token (old revoked, new issued)
-        IssuedRefreshToken newRefresh = refreshTokenService.rotate(
+        // Use new method from RefreshTokenService that handles user lookup
+        var result = refreshTokenService.rotateWithUser(
                 req.getRefreshToken(),
                 httpReq.getRemoteAddr(),
                 httpReq.getHeader("User-Agent")
         );
 
-        // 3) Load user to create JWT claims (email/roles)
-        User u = userRepository.findById(userId).
-            orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND, "User Not Found", false));// convert to BusinessException in your project
-
-        // 4) New access token
-        String access = jwtService.generateAccessToken(u);
-
-        TokenResponse tokenResponse = new TokenResponse(
-                access,
-                jwtService.accessTokenTtlSeconds(),
-                newRefresh.refreshToken(),
-                secondsLeft(newRefresh.expiresAt())
+        // Build response using builder
+        AuthResponse response = authResponseBuilder.buildRefreshResponse(
+                result.user(), 
+                result.token(), 
+                httpReq
         );
 
         String requestId = MDC.get(CorrelationId.MDC_KEY);
-
-        AuthResponse response = new AuthResponse(
-            toResponse(u),
-            tokenResponse
-        );
         return ApiResponse.ok("v1", requestId, response);
     }
 
@@ -142,8 +125,10 @@ public class AuthController {
     // -------------------------
     @PostMapping("/logout-all")
     public ApiResponse<AuthResponse> logoutAll(Authentication authentication) {
-        Jwt jwt = (Jwt) authentication.getPrincipal();
-        UUID userId = UUID.fromString(jwt.getSubject());
+        UUID userId = jwtClaimsExtractor.extractUserId(authentication);
+        if (userId == null) {
+            throw new BusinessException(ErrorCode.UNAUTHORIZED, "Invalid authentication", false);
+        }
 
         refreshTokenService.revokeAllForUser(userId);
 
@@ -151,46 +136,4 @@ public class AuthController {
         return ApiResponse.ok("v1", requestId, null);
     }
 
-    // -------------------------
-    // Helpers
-    // -------------------------
-    private ApiResponse<AuthResponse> buildAuthResponse(User u, HttpServletRequest httpReq) {
-        // access token
-        String access = jwtService.generateAccessToken(u);
-
-        // refresh token
-        IssuedRefreshToken issuedRefresh = refreshTokenService.issue(
-                u.getId(),
-                httpReq.getRemoteAddr(),
-                httpReq.getHeader("User-Agent")
-        );
-
-        TokenResponse tokenResponse = new TokenResponse(
-                access,
-                jwtService.accessTokenTtlSeconds(),
-                issuedRefresh.refreshToken(),
-                secondsLeft(issuedRefresh.expiresAt())
-        );
-
-        AuthResponse response = new AuthResponse(
-                toResponse(u),
-                tokenResponse
-        );
-
-        String requestId = MDC.get(CorrelationId.MDC_KEY);
-        return ApiResponse.ok("v1", requestId, response);
-    }
-
-    private long secondsLeft(Instant expiresAt) {
-        long sec = Duration.between(Instant.now(), expiresAt).getSeconds();
-        return Math.max(sec, 0);
-    }
-
-    private UserResponse toResponse(User u) {
-        return new UserResponse(
-                u.getId(),
-                u.getEmail(),
-                u.getRoles()
-        );
-    }
 }
