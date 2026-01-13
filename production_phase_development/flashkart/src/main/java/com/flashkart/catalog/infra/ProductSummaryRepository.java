@@ -21,29 +21,34 @@ public interface ProductSummaryRepository extends JpaRepository<com.flashkart.ca
      * This avoids loading full Product entity and all its relationships.
      * Uses GROUP BY and aggregate functions to calculate price range.
      */
-    @Query("SELECT p.id as id, " +
-           "p.name as name, " +
-           "p.description as description, " +
-           "p.brand as brand, " +
-           "p.imageUrl as imageUrl, " +
-           "p.category.id as categoryId, " +
-           "p.category.name as categoryName, " +
-           "MIN(pr.amount) as minPrice, " +
-           "MAX(pr.amount) as maxPrice, " +
-           "p.active as active " +
-           "FROM Product p " +
-           "LEFT JOIN p.category " +
-           "LEFT JOIN p.skus s " +
-           "LEFT JOIN s.currentPrice pr " +
-           "WHERE (:categoryId IS NULL OR p.category.id = :categoryId) " +
-           "AND (:brand IS NULL OR p.brand = :brand) " +
-           "AND (:searchTerm IS NULL OR LOWER(p.name) LIKE LOWER(CONCAT('%', :searchTerm, '%'))) " +
-           "AND p.active = true AND p.deletedAt IS NULL " +
-           "GROUP BY p.id, p.name, p.description, p.brand, p.imageUrl, p.category.id, p.category.name, p.active")
+    @Query("""
+            SELECT p.id as id,
+                   p.name as name,
+                   p.description as description,
+                   p.brand as brand,
+                   p.imageUrl as imageUrl,
+                   c.id as categoryId,
+                   c.name as categoryName,
+                   MIN(pr.amount) as minPrice,
+                   MAX(pr.amount) as maxPrice,
+                   p.active as active
+            FROM Product p
+            LEFT JOIN p.category c
+            LEFT JOIN p.skus s
+            LEFT JOIN s.currentPrice pr
+            WHERE c.id = COALESCE(:categoryId, c.id)
+              AND p.brand = COALESCE(:brand, p.brand)
+              AND (
+                    NULLIF(COALESCE(:searchTerm, ''), '') IS NULL
+                    OR LOWER(p.name) LIKE CONCAT('%', LOWER(COALESCE(:searchTerm, '')), '%')
+                  )
+              AND p.active = true
+              AND p.deletedAt IS NULL
+            GROUP BY p.id, p.name, p.description, p.brand, p.imageUrl, c.id, c.name, p.active
+            """)
     Page<ProductProjection> findProductSummaries(
             @Param("categoryId") UUID categoryId,
             @Param("brand") String brand,
             @Param("searchTerm") String searchTerm,
-            Pageable pageable
-    );
+            Pageable pageable);
 }
