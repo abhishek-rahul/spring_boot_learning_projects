@@ -1,0 +1,524 @@
+{
+	"info": {
+		"_postman_id": "flashkart-api-collection",
+		"name": "FlashKart API Collection",
+		"description": "Complete API collection for FlashKart e-commerce platform",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "Identity",
+			"item": [
+				{
+					"name": "Auth",
+					"item": [
+						{
+							"name": "Signup",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"if (pm.response.code === 200) {",
+											"    var jsonData = pm.response.json();",
+											"    if (jsonData.data && jsonData.data.tokenResponse) {",
+											"        pm.environment.set('accessToken', jsonData.data.tokenResponse.accessToken);",
+											"        pm.environment.set('refreshToken', jsonData.data.tokenResponse.refreshToken);",
+											"        pm.environment.set('userId', jsonData.data.userResponse.id);",
+											"    }",
+											"}"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n    \"email\": \"user@example.com\",\n    \"password\": \"password123\"\n}"
+								},
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/auth/signup",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "v1", "auth", "signup"]
+								},
+								"description": "Register a new user. Returns user info, access token, and refresh token. Tokens are automatically saved to environment variables."
+							},
+							"response": []
+						},
+						{
+							"name": "Login",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"if (pm.response.code === 200) {",
+											"    var jsonData = pm.response.json();",
+											"    if (jsonData.data && jsonData.data.tokenResponse) {",
+											"        pm.environment.set('accessToken', jsonData.data.tokenResponse.accessToken);",
+											"        pm.environment.set('refreshToken', jsonData.data.tokenResponse.refreshToken);",
+											"        pm.environment.set('userId', jsonData.data.userResponse.id);",
+											"    }",
+											"}"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n    \"email\": \"user@example.com\",\n    \"password\": \"password123\"\n}"
+								},
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/auth/login",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "v1", "auth", "login"]
+								},
+								"description": "Login with email and password. Returns user info, access token, and refresh token. Tokens are automatically saved to environment variables."
+							},
+							"response": []
+						},
+						{
+							"name": "Refresh Token",
+							"event": [
+								{
+									"listen": "test",
+									"script": {
+										"exec": [
+											"if (pm.response.code === 200) {",
+											"    var jsonData = pm.response.json();",
+											"    if (jsonData.data && jsonData.data.tokenResponse) {",
+											"        pm.environment.set('accessToken', jsonData.data.tokenResponse.accessToken);",
+											"        pm.environment.set('refreshToken', jsonData.data.tokenResponse.refreshToken);",
+											"    }",
+											"}"
+										],
+										"type": "text/javascript"
+									}
+								}
+							],
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n    \"refreshToken\": \"{{refreshToken}}\"\n}"
+								},
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/auth/refresh",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "v1", "auth", "refresh"]
+								},
+								"description": "Refresh access token using refresh token. Old refresh token is revoked and new tokens are issued. Tokens are automatically saved to environment variables."
+							},
+							"response": []
+						},
+						{
+							"name": "Logout",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n    \"refreshToken\": \"{{refreshToken}}\"\n}"
+								},
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/auth/logout",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "v1", "auth", "logout"]
+								},
+								"description": "Logout and revoke the refresh token for current device."
+							},
+							"response": []
+						},
+						{
+							"name": "Logout All",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "Bearer {{accessToken}}"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/auth/logout-all",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "v1", "auth", "logout-all"]
+								},
+								"description": "Logout from all devices. Requires JWT authentication. Revokes all refresh tokens for the current user."
+							},
+							"response": []
+						}
+					]
+				},
+				{
+					"name": "User",
+					"item": [
+						{
+							"name": "Get Current User (Me)",
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "Bearer {{accessToken}}"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/me",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "v1", "me"]
+								},
+								"description": "Get current authenticated user info from JWT token. Requires JWT authentication."
+							},
+							"response": []
+						},
+						{
+							"name": "Get User by ID",
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "Bearer {{accessToken}}"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/users/{{userId}}",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "v1", "users", "{{userId}}"]
+								},
+								"description": "Get user by ID. Requires JWT authentication. Users can only access their own data unless they are ADMIN."
+							},
+							"response": []
+						},
+						{
+							"name": "List All Users",
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "Bearer {{accessToken}}"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/users",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "v1", "users"]
+								},
+								"description": "List all users. Requires ADMIN role."
+							},
+							"response": []
+						}
+					]
+				}
+			]
+		},
+		{
+			"name": "Catalog",
+			"item": [
+				{
+					"name": "Products",
+					"item": [
+						{
+							"name": "Get Product by ID",
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/products/{{productId}}",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "v1", "products", "{{productId}}"]
+								},
+								"description": "Get detailed product information including SKUs and prices. Public endpoint."
+							},
+							"response": []
+						},
+						{
+							"name": "Search Products",
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/products?categoryId={{categoryId}}&brand=&searchTerm=&page=0&size=20&sortBy=createdAt&sortDirection=DESC",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "v1", "products"],
+									"query": [
+										{
+											"key": "categoryId",
+											"value": "{{categoryId}}",
+											"description": "Category ID filter (optional)",
+											"disabled": true
+										},
+										{
+											"key": "brand",
+											"value": "",
+											"description": "Brand filter (optional)",
+											"disabled": true
+										},
+										{
+											"key": "searchTerm",
+											"value": "",
+											"description": "Search term for product name (optional)",
+											"disabled": true
+										},
+										{
+											"key": "page",
+											"value": "0",
+											"description": "Page number (0-indexed, default: 0)"
+										},
+										{
+											"key": "size",
+											"value": "20",
+											"description": "Page size (default: 20)"
+										},
+										{
+											"key": "sortBy",
+											"value": "createdAt",
+											"description": "Sort field (default: createdAt)"
+										},
+										{
+											"key": "sortDirection",
+											"value": "DESC",
+											"description": "Sort direction: ASC or DESC (default: DESC)"
+										}
+									]
+								},
+								"description": "Search and filter products with pagination, sorting, and filtering. Supports filtering by category, brand, and search term. Public endpoint."
+							},
+							"response": []
+						}
+					]
+				},
+				{
+					"name": "Categories",
+					"item": [
+						{
+							"name": "Get Category by ID",
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/categories/{{categoryId}}",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "v1", "categories", "{{categoryId}}"]
+								},
+								"description": "Get category by ID. Public endpoint."
+							},
+							"response": []
+						},
+						{
+							"name": "Get All Active Categories",
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/categories",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "v1", "categories"]
+								},
+								"description": "Get all active categories. Public endpoint."
+							},
+							"response": []
+						}
+					]
+				}
+			]
+		},
+		{
+			"name": "Orders",
+			"item": [
+				{
+					"name": "Get Order by ID",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{accessToken}}"
+							},
+							{
+								"key": "Accept",
+								"value": "application/json"
+							}
+								],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/orders/{{orderId}}",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "v1", "orders", "{{orderId}}"]
+						},
+						"description": "Get order by ID. Requires JWT authentication. Users can only access their own orders unless they are ADMIN."
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Admin",
+			"item": [
+				{
+					"name": "Auth",
+					"item": [
+						{
+							"name": "Admin Login",
+							"request": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									},
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n    \"email\": \"admin@example.com\",\n    \"password\": \"admin123\"\n}"
+								},
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/admin/auth/login",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "v1", "admin", "auth", "login"]
+								},
+								"description": "Admin login using session-based authentication. Creates a session stored in Redis. Note: Postman will automatically handle session cookies."
+							},
+							"response": []
+						},
+						{
+							"name": "Get CSRF Token",
+							"request": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Accept",
+										"value": "application/json"
+									}
+								],
+								"url": {
+									"raw": "{{baseUrl}}/api/v1/admin/csrf",
+									"host": ["{{baseUrl}}"],
+									"path": ["api", "v1", "admin", "csrf"]
+								},
+								"description": "Get CSRF token for admin endpoints. Public endpoint. Use the token in X-XSRF-TOKEN header for subsequent requests."
+							},
+							"response": []
+						}
+					]
+				},
+				{
+					"name": "Get Admin Info",
+					"request": {
+						"method": "GET",
+						"header": [
+							{
+								"key": "Accept",
+								"value": "application/json"
+							},
+							{
+								"key": "X-XSRF-TOKEN",
+								"value": "{{csrfToken}}",
+								"description": "CSRF token (get from /csrf endpoint)"
+							}
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/admin/me",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "v1", "admin", "me"]
+						},
+						"description": "Get current admin user info. Requires admin session authentication and CSRF token."
+					},
+					"response": []
+				}
+			]
+		}
+	],
+	"variable": [
+		{
+			"key": "baseUrl",
+			"value": "http://localhost:8080",
+			"type": "string"
+		}
+	]
+}

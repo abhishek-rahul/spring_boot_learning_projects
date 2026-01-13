@@ -13,7 +13,7 @@ import com.flashkart.shared.observability.CorrelationId;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
-import com.flashkart.shared.error.BusinessException; 
+import com.flashkart.shared.error.BusinessException;
 
 import org.slf4j.MDC;
 import org.springframework.security.core.Authentication;
