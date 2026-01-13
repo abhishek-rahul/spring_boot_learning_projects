@@ -24,4 +24,15 @@ public enum ErrorCode {
 
     // security domain
     LOGIN_THROTTLED,
+
+    // catalog domain
+    CATEGORY_NOT_FOUND,
+    CATEGORY_ALREADY_EXISTS,
+    PRODUCT_NOT_FOUND,
+    PRODUCT_ALREADY_EXISTS,
+    SKU_NOT_FOUND,
+    SKU_ALREADY_EXISTS,
+    SKU_CODE_ALREADY_EXISTS,
+    PRICE_NOT_FOUND,
+    INSUFFICIENT_STOCK,
 }
