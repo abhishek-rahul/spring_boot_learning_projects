@@ -1,0 +1,715 @@
+@startuml
+!theme plain
+skinparam sequenceMessageAlign center
+skinparam maxMessageSize 60
+
+' ============================================
+' AUTHENTICATION FLOWS
+' ============================================
+
+@startuml Auth_Signup_Happy
+title User Signup - Happy Path
+
+actor Client
+participant "RequestIdFilter" as Filter
+participant "AuthController" as Controller
+participant "AuthService" as Service
+participant "UserService" as UserService
+participant "UserRepository" as Repo
+participant "JwtService" as Jwt
+participant "RefreshTokenService" as Refresh
+participant "RefreshTokenRepository" as RefreshRepo
+database PostgreSQL
+
+Client -> Filter: POST /api/v1/auth/signup\n{email, password}
+activate Filter
+Filter -> Filter: Generate requestId\nStore in MDC
+Filter -> Controller: Forward request
+deactivate Filter
+
+activate Controller
+Controller -> Controller: Validate @Valid
+Controller -> Service: signup(email, password)
+activate Service
+
+Service -> Repo: existsByEmail(email)
+activate Repo
+Repo -> PostgreSQL: SELECT email FROM users
+PostgreSQL --> Repo: false (not exists)
+deactivate Repo
+
+Service -> UserService: createUser(email, password)
+activate UserService
+UserService -> UserService: Hash password (BCrypt)
+UserService -> Repo: save(User)
+activate Repo
+Repo -> PostgreSQL: INSERT INTO users
+PostgreSQL --> Repo: User entity
+deactivate Repo
+UserService --> Service: User
+deactivate UserService
+
+Service --> Controller: User
+deactivate Service
+
+Controller -> Jwt: generateAccessToken(user)
+activate Jwt
+Jwt --> Controller: accessToken
+deactivate Jwt
+
+Controller -> Refresh: issueToken(user, ip, userAgent)
+activate Refresh
+Refresh -> Refresh: Generate token hash
+Refresh -> RefreshRepo: save(RefreshToken)
+activate RefreshRepo
+RefreshRepo -> PostgreSQL: INSERT INTO refresh_tokens
+PostgreSQL --> RefreshRepo: RefreshToken
+deactivate RefreshRepo
+Refresh --> Controller: refreshToken
+deactivate Refresh
+
+Controller -> Controller: Build AuthResponse
+Controller --> Client: 200 OK\n{accessToken, refreshToken, user}
+deactivate Controller
+
+@enduml
+
+@startuml Auth_Login_Happy
+title User Login - Happy Path
+
+actor Client
+participant "RequestIdFilter" as Filter
+participant "RateLimitFilter" as RateLimit
+participant "LoginThrottleService" as Throttle
+participant "AuthController" as Controller
+participant "AuthService" as Service
+participant "UserRepository" as Repo
+participant "JwtService" as Jwt
+participant "RefreshTokenService" as Refresh
+database PostgreSQL
+database Redis
+
+Client -> Filter: POST /api/v1/auth/login\n{email, password}
+activate Filter
+Filter -> Filter: Generate requestId
+Filter -> RateLimit: Check rate limit
+activate RateLimit
+RateLimit -> Redis: INCR rate_limit_key
+Redis --> RateLimit: count
+alt count > maxRequests
+    RateLimit --> Client: 429 Too Many Requests
+    deactivate RateLimit
+    deactivate Filter
+else
+    RateLimit -> Controller: Continue
+    deactivate RateLimit
+end
+
+Filter -> Controller: Forward request
+deactivate Filter
+
+activate Controller
+Controller -> Throttle: checkAllowed(email, ip)
+activate Throttle
+Throttle -> Redis: GET throttle_block_key
+Redis --> Throttle: null (not blocked)
+deactivate Throttle
+
+Controller -> Service: login(email, password)
+activate Service
+
+Service -> Repo: findByEmail(email)
+activate Repo
+Repo -> PostgreSQL: SELECT * FROM users
+PostgreSQL --> Repo: User
+deactivate Repo
+
+Service -> Service: passwordEncoder.matches(password, hash)
+alt Password mismatch
+    Service -> Throttle: onFailure(email, ip)
+    activate Throttle
+    Throttle -> Redis: INCR failure_count
+    deactivate Throttle
+    Service --> Controller: BusinessException(INVALID_CREDENTIALS)
+    Controller --> Client: 400 Bad Request
+else Password matches
+    Service --> Controller: User
+    deactivate Service
+    
+    Controller -> Throttle: onSuccess(email, ip)
+    activate Throttle
+    Throttle -> Redis: DELETE failure_count
+    deactivate Throttle
+    
+    Controller -> Jwt: generateAccessToken(user)
+    activate Jwt
+    Jwt --> Controller: accessToken
+    deactivate Jwt
+    
+    Controller -> Refresh: issueToken(user, ip, userAgent)
+    activate Refresh
+    Refresh -> Refresh: Generate token hash
+    Refresh -> PostgreSQL: INSERT INTO refresh_tokens
+    PostgreSQL --> Refresh: RefreshToken
+    Refresh --> Controller: refreshToken
+    deactivate Refresh
+    
+    Controller --> Client: 200 OK\n{accessToken, refreshToken, user}
+end
+deactivate Controller
+
+@enduml
+
+@startuml Auth_Refresh_Happy
+title Token Refresh - Happy Path
+
+actor Client
+participant "RequestIdFilter" as Filter
+participant "AuthController" as Controller
+participant "RefreshTokenService" as Service
+participant "RefreshTokenRepository" as Repo
+participant "UserRepository" as UserRepo
+participant "JwtService" as Jwt
+database PostgreSQL
+
+Client -> Filter: POST /api/v1/auth/refresh\n{refreshToken}
+activate Filter
+Filter -> Filter: Generate requestId
+Filter -> Controller: Forward request
+deactivate Filter
+
+activate Controller
+Controller -> Service: rotateWithUser(refreshToken, ip, userAgent)
+activate Service
+
+Service -> Service: Hash token (SHA-256)
+Service -> Repo: findByTokenHash(hash)
+activate Repo
+Repo -> PostgreSQL: SELECT * FROM refresh_tokens\nWHERE token_hash = ?
+PostgreSQL --> Repo: RefreshToken
+deactivate Repo
+
+alt Token not found or expired or revoked
+    Service --> Controller: BusinessException
+    Controller --> Client: 400 Bad Request
+else Token valid
+    Service -> UserRepo: findById(userId)
+    activate UserRepo
+    UserRepo -> PostgreSQL: SELECT * FROM users WHERE id = ?
+    PostgreSQL --> UserRepo: User
+    deactivate UserRepo
+    
+    Service -> Service: Revoke old token
+    Service -> Repo: save(oldToken.revoked)
+    activate Repo
+    Repo -> PostgreSQL: UPDATE refresh_tokens\nSET revoked_at = NOW()
+    deactivate Repo
+    
+    Service -> Service: Issue new token
+    Service -> Repo: save(newToken)
+    activate Repo
+    Repo -> PostgreSQL: INSERT INTO refresh_tokens
+    deactivate Repo
+    
+    Service -> Jwt: generateAccessToken(user)
+    activate Jwt
+    Jwt --> Service: accessToken
+    deactivate Jwt
+    
+    Service --> Controller: {user, newToken, accessToken}
+    deactivate Service
+    
+    Controller --> Client: 200 OK\n{accessToken, refreshToken, user}
+end
+deactivate Controller
+
+@enduml
+
+@startuml Admin_Login_Happy
+title Admin Login - Happy Path (Session-based)
+
+actor Admin
+participant "RequestIdFilter" as Filter
+participant "RateLimitFilter" as RateLimit
+participant "AdminAuthController" as Controller
+participant "AuthenticationManager" as AuthMgr
+participant "AdminUserDetailsService" as UserDetails
+participant "UserRepository" as Repo
+participant "SecurityContextRepository" as Session
+database PostgreSQL
+database Redis
+
+Admin -> Filter: POST /api/v1/admin/auth/login\n{email, password}
+activate Filter
+Filter -> Filter: Generate requestId
+Filter -> RateLimit: Check rate limit
+activate RateLimit
+RateLimit -> Redis: INCR admin_rate_limit
+Redis --> RateLimit: count
+alt count > maxRequests
+    RateLimit --> Admin: 429 Too Many Requests
+else
+    RateLimit -> Controller: Continue
+end
+deactivate RateLimit
+Filter -> Controller: Forward request
+deactivate Filter
+
+activate Controller
+Controller -> AuthMgr: authenticate(UsernamePasswordAuthenticationToken)
+activate AuthMgr
+AuthMgr -> UserDetails: loadUserByUsername(email)
+activate UserDetails
+UserDetails -> Repo: findByEmail(email)
+activate Repo
+Repo -> PostgreSQL: SELECT * FROM users\nJOIN user_roles
+PostgreSQL --> Repo: User
+deactivate Repo
+UserDetails -> UserDetails: Check status == ACTIVE
+UserDetails --> AuthMgr: UserDetails
+deactivate UserDetails
+AuthMgr -> AuthMgr: Verify password
+AuthMgr --> Controller: Authentication
+deactivate AuthMgr
+
+Controller -> Controller: Create SecurityContext
+Controller -> Session: saveContext(context, request, response)
+activate Session
+Session -> Redis: SET session:key context
+Redis --> Session: OK
+deactivate Session
+
+Controller --> Admin: 200 OK\n{message: "Admin login success"}
+deactivate Controller
+
+@enduml
+
+' ============================================
+' CATALOG FLOWS
+' ============================================
+
+@startuml Catalog_GetProduct_Happy
+title Get Product by ID - Happy Path
+
+actor Client
+participant "RequestIdFilter" as Filter
+participant "ProductController" as Controller
+participant "ProductService" as Service
+participant "CacheService" as Cache
+participant "ProductRepository" as Repo
+database PostgreSQL
+database Redis
+
+Client -> Filter: GET /api/v1/products/{id}
+activate Filter
+Filter -> Filter: Generate requestId
+Filter -> Controller: Forward request
+deactivate Filter
+
+activate Controller
+Controller -> Service: getById(id)
+activate Service
+
+Service -> Cache: get("product:" + id, ProductResponse.class)
+activate Cache
+Cache -> Redis: GET catalog:product:{id}
+Redis --> Cache: null (cache miss)
+deactivate Cache
+
+Service -> Repo: findByIdWithRelations(id)
+activate Repo
+Repo -> PostgreSQL: SELECT p.*, c.*, s.*, pr.*\nFROM products p\nLEFT JOIN categories c\nLEFT JOIN skus s\nLEFT JOIN prices pr\nWHERE p.id = ?
+PostgreSQL --> Repo: Product (with relations)
+deactivate Repo
+
+Service -> Service: Map to ProductResponse
+Service -> Cache: put("product:" + id, response)
+activate Cache
+Cache -> Redis: SET catalog:product:{id} (TTL: 1h)
+deactivate Cache
+
+Service --> Controller: ProductResponse
+deactivate Service
+
+Controller --> Client: 200 OK\n{ProductResponse}
+deactivate Controller
+
+@enduml
+
+@startuml Catalog_SearchProducts_Happy
+title Search Products - Happy Path
+
+actor Client
+participant "RequestIdFilter" as Filter
+participant "ProductController" as Controller
+participant "ProductService" as Service
+participant "ProductRepository" as Repo
+participant "ProductSpecification" as Spec
+database PostgreSQL
+
+Client -> Filter: GET /api/v1/products?\ncategoryId=&brand=&searchTerm=\npage=0&size=20&sortBy=createdAt&sortDirection=DESC
+activate Filter
+Filter -> Filter: Generate requestId
+Filter -> Controller: Forward request
+deactivate Filter
+
+activate Controller
+Controller -> Service: searchProducts(categoryId, brand, searchTerm, page, size, sortBy, sortDirection)
+activate Service
+
+Service -> Spec: buildSpecification(categoryId, brand, searchTerm)
+activate Spec
+Spec -> Spec: Add category filter
+Spec -> Spec: Add brand filter
+Spec -> Spec: Add search term (full-text search)
+Spec --> Service: Specification
+deactivate Spec
+
+Service -> Service: Build Pageable
+Service -> Repo: findAll(specification, pageable)
+activate Repo
+Repo -> PostgreSQL: SELECT p.*, c.name\nFROM products p\nJOIN categories c\nWHERE (filters)\nORDER BY sortBy sortDirection\nLIMIT size OFFSET page*size
+PostgreSQL --> Repo: Page<Product>
+deactivate Repo
+
+Service -> Service: Map to ProductSummaryResponse
+Service --> Controller: Page<ProductSummaryResponse>
+deactivate Service
+
+Controller -> Controller: Build PaginationMeta
+Controller --> Client: 200 OK\n{Page<ProductSummaryResponse>, pagination}
+deactivate Controller
+
+@enduml
+
+' ============================================
+' CART FLOWS
+' ============================================
+
+@startuml Cart_GetCart_Happy
+title Get Cart - Happy Path
+
+actor Client
+participant "RequestIdFilter" as Filter
+participant "CartController" as Controller
+participant "CartService" as Service
+participant "CartCacheService" as Cache
+participant "CartRepository" as CartRepo
+participant "CartItemRepository" as ItemRepo
+database PostgreSQL
+database Redis
+
+Client -> Filter: GET /api/v1/carts\nAuthorization: Bearer {jwt}
+activate Filter
+Filter -> Filter: Generate requestId
+Filter -> Controller: Forward request
+deactivate Filter
+
+activate Controller
+Controller -> Controller: Extract userId from JWT
+Controller -> Service: getCart(userId)
+activate Service
+
+Service -> Cache: getCart(userId, Cart.class)
+activate Cache
+Cache -> Redis: GET cart:{userId}
+Redis --> Cache: null (cache miss)
+deactivate Cache
+
+Service -> CartRepo: findActiveCartByUserId(userId, now)
+activate CartRepo
+CartRepo -> PostgreSQL: SELECT * FROM carts\nWHERE user_id = ?\nAND deleted_at IS NULL\nAND expires_at > NOW()
+PostgreSQL --> CartRepo: Cart
+deactivate CartRepo
+
+Service -> ItemRepo: findByCartId(cartId)
+activate ItemRepo
+ItemRepo -> PostgreSQL: SELECT * FROM cart_items\nWHERE cart_id = ?\nAND deleted_at IS NULL
+PostgreSQL --> ItemRepo: List<CartItem>
+deactivate ItemRepo
+
+Service -> Service: Load items into cart
+Service -> Cache: putCart(userId, cart)
+activate Cache
+Cache -> Redis: SET cart:{userId} (TTL: 1h)
+deactivate Cache
+
+Service --> Controller: Cart
+deactivate Service
+
+Controller -> Controller: Map to CartResponse
+Controller --> Client: 200 OK\n{CartResponse}
+deactivate Controller
+
+@enduml
+
+@startuml Cart_AddItem_Happy
+title Add Item to Cart - Happy Path
+
+actor Client
+participant "RequestIdFilter" as Filter
+participant "CartController" as Controller
+participant "CartService" as Service
+participant "CartCacheService" as Cache
+participant "CartRepository" as CartRepo
+participant "CartItemRepository" as ItemRepo
+participant "SkuRepository" as SkuRepo
+database PostgreSQL
+database Redis
+
+Client -> Filter: POST /api/v1/carts/items\n{skuId, quantity}
+activate Filter
+Filter -> Filter: Generate requestId
+Filter -> Controller: Forward request
+deactivate Filter
+
+activate Controller
+Controller -> Controller: Validate @Valid
+Controller -> Controller: Extract userId from JWT
+Controller -> Service: addItemToCart(userId, skuId, quantity)
+activate Service
+
+Service -> Service: validateQuantity(quantity)
+alt quantity <= 0
+    Service --> Controller: BusinessException(VALIDATION_ERROR)
+    Controller --> Client: 400 Bad Request
+else
+    Service -> Service: getOrCreateCart(userId)
+    activate Service
+    Service -> Cache: getCart(userId, Cart.class)
+    activate Cache
+    Cache -> Redis: GET cart:{userId}
+    Redis --> Cache: null
+    deactivate Cache
+    
+    Service -> CartRepo: findActiveCartByUserId(userId, now)
+    activate CartRepo
+    CartRepo -> PostgreSQL: SELECT * FROM carts\nWHERE user_id = ? AND expires_at > NOW()
+    PostgreSQL --> CartRepo: Cart (or empty)
+    deactivate CartRepo
+    
+    alt Cart not found
+        Service -> Service: Create new cart
+        Service -> CartRepo: save(new Cart)
+        activate CartRepo
+        CartRepo -> PostgreSQL: INSERT INTO carts
+        PostgreSQL --> CartRepo: Cart
+        deactivate CartRepo
+    end
+    deactivate Service
+    
+    Service -> SkuRepo: findById(skuId)
+    activate SkuRepo
+    SkuRepo -> PostgreSQL: SELECT * FROM skus WHERE id = ?
+    PostgreSQL --> SkuRepo: Sku
+    deactivate SkuRepo
+    
+    Service -> Service: validateSkuAvailability(skuId, quantity)
+    alt SKU not found or inactive
+        Service --> Controller: NotFoundException
+        Controller --> Client: 404 Not Found
+    else Insufficient stock
+        Service --> Controller: BusinessException(INSUFFICIENT_STOCK)
+        Controller --> Client: 400 Bad Request
+    else Stock available
+        Service -> ItemRepo: findByCartIdAndSkuId(cartId, skuId)
+        activate ItemRepo
+        ItemRepo -> PostgreSQL: SELECT * FROM cart_items\nWHERE cart_id = ? AND sku_id = ?
+        PostgreSQL --> ItemRepo: CartItem (or empty)
+        deactivate ItemRepo
+        
+        alt Item exists
+            Service -> Service: Update quantity
+            Service -> ItemRepo: save(existingItem)
+            activate ItemRepo
+            ItemRepo -> PostgreSQL: UPDATE cart_items\nSET quantity = ?
+            deactivate ItemRepo
+        else New item
+            Service -> ItemRepo: save(new CartItem)
+            activate ItemRepo
+            ItemRepo -> PostgreSQL: INSERT INTO cart_items
+            deactivate ItemRepo
+        end
+        
+        Service -> Service: extendCartExpiry(cart)
+        Service -> CartRepo: save(cart)
+        activate CartRepo
+        CartRepo -> PostgreSQL: UPDATE carts\nSET expires_at = ?
+        deactivate CartRepo
+        
+        Service -> Cache: invalidateCart(userId)
+        activate Cache
+        Cache -> Redis: DELETE cart:{userId}
+        deactivate Cache
+        
+        Service --> Controller: Cart
+    end
+end
+deactivate Service
+
+Controller -> Controller: Map to CartResponse
+Controller --> Client: 201 Created\n{CartResponse}
+deactivate Controller
+
+@enduml
+
+@startuml Cart_CleanupJob_Happy
+title Cart Cleanup Scheduled Job - Happy Path
+
+participant "Scheduler" as Scheduler
+participant "CartCleanupJob" as Job
+participant "DistributedLockService" as Lock
+participant "CartRepository" as Repo
+database Redis
+database PostgreSQL
+
+Scheduler -> Job: @Scheduled(cron: "0 0 * * * ?")
+activate Job
+
+Job -> Lock: tryLock("cart-cleanup-job", timeout)
+activate Lock
+Lock -> Redis: SETNX lock:cart-cleanup-job {token} EX 600
+Redis --> Lock: true (lock acquired)
+Lock --> Job: lockToken
+deactivate Lock
+
+alt Lock not acquired
+    Job -> Job: Log: "Lock already held"
+    Job --> Scheduler: Skip execution
+else Lock acquired
+    Job -> Job: Log: "Starting cleanup"
+    Job -> Repo: softDeleteExpiredCarts(now, now)
+    activate Repo
+    Repo -> PostgreSQL: UPDATE carts\nSET deleted_at = NOW()\nWHERE deleted_at IS NULL\nAND expires_at <= NOW()
+    PostgreSQL --> Repo: deletedCount
+    deactivate Repo
+    
+    Job -> Job: Log: "Deleted {count} carts"
+    Job -> Lock: releaseLock("cart-cleanup-job", token)
+    activate Lock
+    Lock -> Redis: EVAL Lua script\n(atomic check and delete)
+    Redis --> Lock: 1 (released)
+    deactivate Lock
+    Job --> Scheduler: Completed
+end
+deactivate Job
+
+@enduml
+
+' ============================================
+' ERROR FLOWS
+' ============================================
+
+@startuml Auth_Login_Failure
+title User Login - Failure Paths
+
+actor Client
+participant "RequestIdFilter" as Filter
+participant "LoginThrottleService" as Throttle
+participant "AuthController" as Controller
+participant "AuthService" as Service
+participant "GlobalExceptionHandler" as Handler
+database Redis
+
+Client -> Filter: POST /api/v1/auth/login\n{email, password}
+Filter -> Controller: Forward request
+activate Controller
+
+Controller -> Throttle: checkAllowed(email, ip)
+activate Throttle
+Throttle -> Redis: GET throttle_block:{email}:{ip}
+Redis --> Throttle: "1" (blocked)
+deactivate Throttle
+
+alt User is throttled
+    Controller -> Handler: BusinessException(LOGIN_THROTTLED)
+    activate Handler
+    Handler -> Handler: Map to ApiErrorResponse
+    Handler --> Client: 429 Too Many Requests\n{errorCode: "LOGIN_THROTTLED"}
+    deactivate Handler
+else
+    Controller -> Service: login(email, password)
+    activate Service
+    Service -> Service: findByEmail(email)
+    
+    alt User not found
+        Service -> Throttle: onFailure(email, ip)
+        Service --> Controller: BusinessException(USER_NOT_FOUND)
+        Controller -> Handler: Catch exception
+        activate Handler
+        Handler --> Client: 400 Bad Request\n{errorCode: "USER_NOT_FOUND"}
+        deactivate Handler
+    else Invalid password
+        Service -> Throttle: onFailure(email, ip)
+        Service --> Controller: BusinessException(INVALID_CREDENTIALS)
+        Controller -> Handler: Catch exception
+        activate Handler
+        Handler --> Client: 400 Bad Request\n{errorCode: "INVALID_CREDENTIALS"}
+        deactivate Handler
+    end
+    deactivate Service
+end
+deactivate Controller
+
+@enduml
+
+@startuml Cart_AddItem_Failure
+title Add Item to Cart - Failure Paths
+
+actor Client
+participant "CartController" as Controller
+participant "CartService" as Service
+participant "SkuRepository" as SkuRepo
+participant "GlobalExceptionHandler" as Handler
+database PostgreSQL
+
+Client -> Controller: POST /api/v1/carts/items\n{skuId, quantity: -1}
+activate Controller
+
+Controller -> Controller: Validate @Valid
+alt Validation fails
+    Controller -> Handler: MethodArgumentNotValidException
+    activate Handler
+    Handler --> Client: 400 Bad Request\n{errorCode: "VALIDATION_ERROR",\nerrorDetails: [{field: "quantity", message: "must be greater than 0"}]}
+    deactivate Handler
+else
+    Controller -> Service: addItemToCart(userId, skuId, quantity)
+    activate Service
+    
+    Service -> Service: validateQuantity(quantity)
+    alt quantity <= 0
+        Service --> Controller: BusinessException(VALIDATION_ERROR)
+        Controller -> Handler: Catch exception
+        activate Handler
+        Handler --> Client: 400 Bad Request\n{errorCode: "VALIDATION_ERROR"}
+        deactivate Handler
+    else
+        Service -> SkuRepo: findById(skuId)
+        activate SkuRepo
+        SkuRepo -> PostgreSQL: SELECT * FROM skus WHERE id = ?
+        PostgreSQL --> SkuRepo: null
+        deactivate SkuRepo
+        
+        alt SKU not found
+            Service --> Controller: NotFoundException
+            Controller -> Handler: Catch exception
+            activate Handler
+            Handler --> Client: 404 Not Found\n{errorCode: "NOT_FOUND"}
+            deactivate Handler
+        else SKU found but insufficient stock
+            Service -> Service: Check availableQuantity
+            Service --> Controller: BusinessException(INSUFFICIENT_STOCK)
+            Controller -> Handler: Catch exception
+            activate Handler
+            Handler --> Client: 400 Bad Request\n{errorCode: "INSUFFICIENT_STOCK",\nerrorMessage: "Available: 5, Requested: 10"}
+            deactivate Handler
+        end
+    end
+    deactivate Service
+end
+deactivate Controller
+
+@enduml
+
+@enduml
+
