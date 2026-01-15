@@ -35,4 +35,9 @@ public enum ErrorCode {
     SKU_CODE_ALREADY_EXISTS,
     PRICE_NOT_FOUND,
     INSUFFICIENT_STOCK,
+
+    // cart domain
+    CART_NOT_FOUND,
+    CART_ITEM_NOT_FOUND,
+    CART_EXPIRED,
 }
