@@ -1,0 +1,113 @@
+@startuml Checkout_Idempotency
+!theme plain
+skinparam backgroundColor #FFFFFF
+skinparam sequenceArrowThickness 2
+skinparam roundcorner 10
+
+actor Client
+participant "OrderController" as Controller
+participant "IdempotencyService" as Idempotency
+participant "CheckoutService" as Checkout
+database "PostgreSQL" as DB
+
+== Scenario 1: Duplicate Request (Same Idempotency Key) ==
+
+Client -> Controller: POST /api/v1/orders/checkout\n{cartId, idempotencyKey="abc123"}
+activate Controller
+
+Controller -> Idempotency: getExistingResponse("abc123", userId, path)
+activate Idempotency
+
+Idempotency -> Idempotency: hashKey("abc123")
+note right of Idempotency: SHA-256 hash
+
+Idempotency -> DB: SELECT idempotency_keys\nWHERE key_hash = ?
+DB --> Idempotency: IdempotencyKey (found, not expired)
+
+Idempotency -> Idempotency: validateUserAndPath()
+Idempotency -> Idempotency: checkExpired()
+
+Idempotency --> Controller: IdempotencyResponse\n(statusCode=201, responseBody=JSON)
+deactivate Idempotency
+
+Controller -> Controller: deserializeResponse(responseBody)
+Controller --> Client: 201 Created\nApiResponse<OrderResponse>\n(cached response)
+
+note right of Controller: CheckoutService NOT called\nNo database writes\nIdempotent response returned
+
+deactivate Controller
+
+== Scenario 2: First Request (New Idempotency Key) ==
+
+Client -> Controller: POST /api/v1/orders/checkout\n{cartId, idempotencyKey="xyz789"}
+activate Controller
+
+Controller -> Idempotency: getExistingResponse("xyz789", userId, path)
+activate Idempotency
+
+Idempotency -> Idempotency: hashKey("xyz789")
+Idempotency -> DB: SELECT idempotency_keys\nWHERE key_hash = ?
+DB --> Idempotency: Optional.empty()
+
+Idempotency --> Controller: Optional.empty()
+deactivate Idempotency
+
+Controller -> Checkout: checkout(userId, cartId)
+activate Checkout
+
+... Checkout process (success) ...
+
+Checkout --> Controller: Order
+deactivate Checkout
+
+Controller -> Controller: toOrderResponse(order)
+
+Controller -> Idempotency: storeResponse("xyz789", userId, path, 201, response)
+activate Idempotency
+
+Idempotency -> Idempotency: hashKey("xyz789")
+Idempotency -> Idempotency: serializeResponse(response)
+Idempotency -> DB: INSERT INTO idempotency_keys\n(id, key_hash, user_id, request_path,\nresponse_status_code, response_body, expires_at, ...)
+DB --> Idempotency: IdempotencyKey
+Idempotency --> Controller: void
+deactivate Idempotency
+
+Controller --> Client: 201 Created\nApiResponse<OrderResponse>
+deactivate Controller
+
+== Scenario 3: Expired Idempotency Key ==
+
+Client -> Controller: POST /api/v1/orders/checkout\n{cartId, idempotencyKey="expired123"}
+activate Controller
+
+Controller -> Idempotency: getExistingResponse("expired123", userId, path)
+activate Idempotency
+
+Idempotency -> Idempotency: hashKey("expired123")
+Idempotency -> DB: SELECT idempotency_keys\nWHERE key_hash = ?
+DB --> Idempotency: IdempotencyKey (found, but expired)
+
+Idempotency -> Idempotency: checkExpired()
+Idempotency -> Idempotency: key.isExpired() == true
+
+Idempotency --> Controller: Optional.empty()
+deactivate Idempotency
+
+note right of Controller: Expired key ignored\nProcess as new request
+
+Controller -> Checkout: checkout(userId, cartId)
+activate Checkout
+
+... Checkout process (success) ...
+
+Checkout --> Controller: Order
+deactivate Checkout
+
+Controller -> Idempotency: storeResponse("expired123", userId, path, 201, response)
+Idempotency -> DB: INSERT INTO idempotency_keys\n(new record with new expires_at)
+Idempotency --> Controller: void
+
+Controller --> Client: 201 Created\nApiResponse<OrderResponse>
+deactivate Controller
+
+@enduml

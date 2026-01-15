@@ -1,0 +1,99 @@
+@startuml Checkout_InventoryFailure
+!theme plain
+skinparam backgroundColor #FFFFFF
+skinparam sequenceArrowThickness 2
+skinparam roundcorner 10
+
+actor Client
+participant "OrderController" as Controller
+participant "CheckoutService" as Checkout
+participant "OrderRepository" as OrderRepo
+participant "OrderItemRepository" as OrderItemRepo
+participant "InventoryReservationService" as Inventory
+participant "SkuRepository" as SkuRepo
+database "PostgreSQL" as DB
+
+Client -> Controller: POST /api/v1/orders/checkout\n{cartId, idempotencyKey?}
+activate Controller
+
+Controller -> Checkout: checkout(userId, cartId)
+activate Checkout
+
+note right of Checkout: @Transactional(READ_COMMITTED)\nrollbackFor = {BusinessException}
+
+... Cart validation (success) ...
+
+Checkout -> OrderRepo: save(Order)
+OrderRepo -> DB: INSERT INTO orders\n(id, user_id, order_number, status='DRAFT', ...)
+DB --> OrderRepo: Order
+OrderRepo --> Checkout: Order
+
+... Order items created ...
+
+Checkout -> Inventory: reserveInventory(orderId, skuQuantities)
+activate Inventory
+
+note right of Inventory: @Transactional(READ_COMMITTED)
+
+loop for each SKU
+    Inventory -> SkuRepo: findByIdForUpdate(skuId)
+    activate SkuRepo
+    note right of SkuRepo: PESSIMISTIC_WRITE lock
+    SkuRepo -> DB: SELECT skus WHERE id = ? FOR UPDATE
+    DB --> SkuRepo: Sku (locked)
+    SkuRepo --> Inventory: Sku
+    
+    Inventory -> Inventory: validateAvailableQuantity()
+    
+    alt Insufficient Stock
+        Inventory -> Inventory: sku.getAvailableQuantity() < quantity
+        Inventory -> Inventory: throw BusinessException(INSUFFICIENT_STOCK)
+        Inventory --> Checkout: BusinessException
+        deactivate Inventory
+        deactivate SkuRepo
+        
+        Checkout -> Checkout: catch BusinessException
+        Checkout -> Checkout: Transaction rollback triggered
+        
+        note right of DB: Transaction rolled back\nOrder, OrderItems NOT persisted\nSKU locks released
+        
+        Checkout --> Controller: BusinessException
+        deactivate Checkout
+        
+        Controller -> Controller: catch BusinessException
+        
+        alt idempotencyKey provided
+            Controller -> Idempotency: storeResponse(key, userId, path, 400, error)
+            Idempotency -> DB: INSERT INTO idempotency_keys\n(response_status_code = 400, ...)
+            Idempotency --> Controller: void
+        end
+        
+        Controller --> Client: 400 Bad Request\nApiErrorResponse\n"Insufficient stock for SKU X. Available: Y, Requested: Z"
+        deactivate Controller
+        return
+    end
+    
+    Inventory -> SkuRepo: save(sku)
+    SkuRepo -> DB: UPDATE skus\nSET reserved_quantity = ?\nWHERE id = ?
+    DB --> SkuRepo: Sku
+    SkuRepo --> Inventory: Sku
+    deactivate SkuRepo
+    
+    Inventory -> DB: INSERT INTO inventory_reservations\n(id, order_id, sku_id, quantity, status='RESERVED', ...)
+    DB --> Inventory: InventoryReservation
+end
+
+Inventory --> Checkout: List<InventoryReservation>
+deactivate Inventory
+
+... Payment intent creation (success) ...
+
+Checkout --> Controller: Order
+deactivate Checkout
+
+Controller --> Client: 201 Created\nApiResponse<OrderResponse>
+deactivate Controller
+
+note right of DB: Transaction commits\nAll changes persisted atomically
+
+@enduml

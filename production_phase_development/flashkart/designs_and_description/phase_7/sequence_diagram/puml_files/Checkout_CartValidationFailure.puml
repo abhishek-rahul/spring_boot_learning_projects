@@ -1,0 +1,151 @@
+@startuml Checkout_CartValidationFailure
+!theme plain
+skinparam backgroundColor #FFFFFF
+skinparam sequenceArrowThickness 2
+skinparam roundcorner 10
+
+actor Client
+participant "OrderController" as Controller
+participant "IdempotencyService" as Idempotency
+participant "CheckoutService" as Checkout
+participant "CartRepository" as CartRepo
+participant "CartItemRepository" as CartItemRepo
+database "PostgreSQL" as DB
+
+Client -> Controller: POST /api/v1/orders/checkout\n{cartId, idempotencyKey?}
+activate Controller
+
+alt idempotencyKey provided
+    Controller -> Idempotency: getExistingResponse(key, userId, path)
+    activate Idempotency
+    Idempotency -> DB: SELECT idempotency_keys\nWHERE key_hash = ?
+    DB --> Idempotency: Optional.empty()
+    Idempotency --> Controller: Optional.empty()
+    deactivate Idempotency
+end
+
+Controller -> Checkout: checkout(userId, cartId)
+activate Checkout
+
+note right of Checkout: @Transactional(READ_COMMITTED)
+
+Checkout -> CartRepo: findById(cartId)
+activate CartRepo
+CartRepo -> DB: SELECT carts WHERE id = ?
+DB --> CartRepo: Optional.empty()
+
+alt Cart Not Found
+    CartRepo --> Checkout: Optional.empty()
+    deactivate CartRepo
+    Checkout -> Checkout: throw NotFoundException("Cart not found")
+    Checkout --> Controller: BusinessException
+    deactivate Checkout
+    
+    Controller -> Controller: catch BusinessException
+    
+    alt idempotencyKey provided
+        Controller -> Idempotency: storeResponse(key, userId, path, 400, error)
+        activate Idempotency
+        Idempotency -> DB: INSERT INTO idempotency_keys\n(response_status_code = 400, ...)
+        DB --> Idempotency: IdempotencyKey
+        Idempotency --> Controller: void
+        deactivate Idempotency
+    end
+    
+    Controller --> Client: 400 Bad Request\nApiErrorResponse
+    deactivate Controller
+    return
+end
+
+CartRepo --> Checkout: Cart
+deactivate CartRepo
+
+alt Cart Ownership Mismatch
+    Checkout -> Checkout: validateCart(cart, userId)
+    Checkout -> Checkout: cart.userId != userId
+    Checkout -> Checkout: throw BusinessException(FORBIDDEN)
+    Checkout --> Controller: BusinessException
+    deactivate Checkout
+    
+    Controller -> Controller: catch BusinessException
+    
+    alt idempotencyKey provided
+        Controller -> Idempotency: storeResponse(key, userId, path, 400, error)
+        Idempotency -> DB: INSERT INTO idempotency_keys\n(response_status_code = 400, ...)
+        Idempotency --> Controller: void
+    end
+    
+    Controller --> Client: 400 Bad Request\nApiErrorResponse
+    deactivate Controller
+    return
+end
+
+alt Cart Expired
+    Checkout -> Checkout: validateCart(cart, userId)
+    Checkout -> Checkout: cart.isExpired() == true
+    Checkout -> Checkout: throw BusinessException(CART_EXPIRED)
+    Checkout --> Controller: BusinessException
+    deactivate Checkout
+    
+    Controller -> Controller: catch BusinessException
+    
+    alt idempotencyKey provided
+        Controller -> Idempotency: storeResponse(key, userId, path, 400, error)
+        Idempotency -> DB: INSERT INTO idempotency_keys\n(response_status_code = 400, ...)
+        Idempotency --> Controller: void
+    end
+    
+    Controller --> Client: 400 Bad Request\nApiErrorResponse
+    deactivate Controller
+    return
+end
+
+alt Cart Deleted
+    Checkout -> Checkout: validateCart(cart, userId)
+    Checkout -> Checkout: cart.isDeleted() == true
+    Checkout -> Checkout: throw BusinessException(CART_NOT_FOUND)
+    Checkout --> Controller: BusinessException
+    deactivate Checkout
+    
+    Controller -> Controller: catch BusinessException
+    
+    alt idempotencyKey provided
+        Controller -> Idempotency: storeResponse(key, userId, path, 400, error)
+        Idempotency -> DB: INSERT INTO idempotency_keys\n(response_status_code = 400, ...)
+        Idempotency --> Controller: void
+    end
+    
+    Controller --> Client: 400 Bad Request\nApiErrorResponse
+    deactivate Controller
+    return
+end
+
+alt Cart Empty
+    Checkout -> CartItemRepo: findByCartId(cartId)
+    activate CartItemRepo
+    CartItemRepo -> DB: SELECT cart_items WHERE cart_id = ?
+    DB --> CartItemRepo: List<CartItem> (empty)
+    CartItemRepo --> Checkout: List<CartItem> (empty)
+    deactivate CartItemRepo
+    
+    Checkout -> Checkout: validateCartItemsNotEmpty()
+    Checkout -> Checkout: throw BusinessException(VALIDATION_ERROR, "Cart is empty")
+    Checkout --> Controller: BusinessException
+    deactivate Checkout
+    
+    Controller -> Controller: catch BusinessException
+    
+    alt idempotencyKey provided
+        Controller -> Idempotency: storeResponse(key, userId, path, 400, error)
+        Idempotency -> DB: INSERT INTO idempotency_keys\n(response_status_code = 400, ...)
+        Idempotency --> Controller: void
+    end
+    
+    Controller --> Client: 400 Bad Request\nApiErrorResponse
+    deactivate Controller
+    return
+end
+
+note right of DB: Transaction rolled back\nNo changes persisted
+
+@enduml

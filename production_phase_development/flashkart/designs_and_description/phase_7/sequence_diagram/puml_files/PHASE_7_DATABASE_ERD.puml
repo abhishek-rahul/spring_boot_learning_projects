@@ -1,0 +1,140 @@
+@startuml PHASE_7_DATABASE_ERD
+!theme plain
+skinparam backgroundColor #FFFFFF
+skinparam linetype ortho
+
+' Phase 7 Tables
+
+entity "orders" as orders {
+    * id : UUID <<PK>>
+    --
+    * user_id : UUID <<FK>>
+    * order_number : VARCHAR(50) <<UNIQUE>>
+    * status : VARCHAR(50)
+    * total_amount : DECIMAL(10,2)
+    * currency : VARCHAR(3)
+    cart_id : UUID <<FK>>
+    * created_at : TIMESTAMP
+    * updated_at : TIMESTAMP
+    deleted_at : TIMESTAMP
+    --
+    ..
+    CHECK: status IN ('DRAFT', 'PENDING_PAYMENT', 'PAYMENT_FAILED', 'PAID', 'PROCESSING', 'SHIPPED', 'DELIVERED', 'CANCELLED')
+    INDEX: idx_orders_user (user_id) WHERE deleted_at IS NULL
+    INDEX: idx_orders_status (status) WHERE deleted_at IS NULL
+    INDEX: idx_orders_order_number (order_number) WHERE deleted_at IS NULL
+    INDEX: idx_orders_created_at (created_at DESC) WHERE deleted_at IS NULL
+}
+
+entity "order_items" as order_items {
+    * id : UUID <<PK>>
+    --
+    * order_id : UUID <<FK>>
+    * sku_id : UUID <<FK>>
+    * quantity : INTEGER
+    * unit_price : DECIMAL(10,2)
+    * total_price : DECIMAL(10,2)
+    * currency : VARCHAR(3)
+    * created_at : TIMESTAMP
+    * updated_at : TIMESTAMP
+    deleted_at : TIMESTAMP
+    --
+    ..
+    CHECK: quantity > 0
+    INDEX: idx_order_items_order (order_id) WHERE deleted_at IS NULL
+    INDEX: idx_order_items_sku (sku_id) WHERE deleted_at IS NULL
+}
+
+entity "payment_intents" as payment_intents {
+    * id : UUID <<PK>>
+    --
+    * order_id : UUID <<FK>> <<UNIQUE>>
+    * amount : DECIMAL(10,2)
+    * currency : VARCHAR(3)
+    * status : VARCHAR(50)
+    payment_provider : VARCHAR(50)
+    provider_payment_id : VARCHAR(255)
+    failure_reason : TEXT
+    * created_at : TIMESTAMP
+    * updated_at : TIMESTAMP
+    deleted_at : TIMESTAMP
+    --
+    ..
+    CHECK: status IN ('CREATED', 'PENDING', 'SUCCEEDED', 'FAILED', 'CANCELLED')
+    INDEX: idx_payment_intents_order (order_id) WHERE deleted_at IS NULL
+    INDEX: idx_payment_intents_status (status) WHERE deleted_at IS NULL
+    INDEX: idx_payment_intents_provider_id (provider_payment_id) WHERE deleted_at IS NULL AND provider_payment_id IS NOT NULL
+}
+
+entity "idempotency_keys" as idempotency_keys {
+    * id : UUID <<PK>>
+    --
+    * key_hash : VARCHAR(64) <<UNIQUE>>
+    * user_id : UUID <<FK>>
+    * request_path : VARCHAR(255)
+    response_status_code : INTEGER
+    response_body : TEXT
+    * created_at : TIMESTAMP
+    * expires_at : TIMESTAMP
+    --
+    ..
+    INDEX: idx_idempotency_keys_hash (key_hash)
+    INDEX: idx_idempotency_keys_user (user_id)
+    INDEX: idx_idempotency_keys_expires_at (expires_at)
+}
+
+entity "inventory_reservations" as inventory_reservations {
+    * id : UUID <<PK>>
+    --
+    * order_id : UUID <<FK>>
+    * sku_id : UUID <<FK>>
+    * quantity : INTEGER
+    * status : VARCHAR(50)
+    * expires_at : TIMESTAMP
+    * created_at : TIMESTAMP
+    * updated_at : TIMESTAMP
+    deleted_at : TIMESTAMP
+    --
+    ..
+    CHECK: quantity > 0
+    CHECK: status IN ('RESERVED', 'CONFIRMED', 'RELEASED', 'EXPIRED')
+    INDEX: idx_inventory_reservations_order (order_id) WHERE deleted_at IS NULL
+    INDEX: idx_inventory_reservations_sku (sku_id) WHERE deleted_at IS NULL
+    INDEX: idx_inventory_reservations_status (status) WHERE deleted_at IS NULL
+    INDEX: idx_inventory_reservations_expires_at (expires_at) WHERE deleted_at IS NULL AND status = 'RESERVED'
+}
+
+' Foreign Key Relationships
+
+orders }o--|| users : "FK: user_id → users.id\nON DELETE CASCADE"
+orders }o--o| carts : "FK: cart_id → carts.id\nON DELETE SET NULL"
+orders ||--o{ order_items : "FK: order_id → orders.id\nON DELETE CASCADE"
+orders ||--|| payment_intents : "FK: order_id → orders.id\nON DELETE CASCADE\nUNIQUE"
+orders ||--o{ inventory_reservations : "FK: order_id → orders.id\nON DELETE CASCADE"
+
+order_items }o--|| skus : "FK: sku_id → skus.id"
+
+idempotency_keys }o--|| users : "FK: user_id → users.id\nON DELETE CASCADE"
+
+inventory_reservations }o--|| skus : "FK: sku_id → skus.id"
+
+' External references (from other phases)
+entity "users" as users {
+    * id : UUID <<PK>>
+    --
+    note right: Referenced from Phase 4
+}
+
+entity "carts" as carts {
+    * id : UUID <<PK>>
+    --
+    note right: Referenced from Phase 6
+}
+
+entity "skus" as skus {
+    * id : UUID <<PK>>
+    --
+    note right: Referenced from Phase 5
+}
+
+@enduml
