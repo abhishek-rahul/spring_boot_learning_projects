@@ -28,10 +28,9 @@ CREATE TABLE cart_items (
     CONSTRAINT fk_cart_items_cart
         FOREIGN KEY (cart_id) REFERENCES carts(id) ON DELETE CASCADE,
     CONSTRAINT fk_cart_items_sku
-        FOREIGN KEY (sku_id) REFERENCES skus(id),
-    CONSTRAINT uk_cart_items_cart_sku UNIQUE (cart_id, sku_id) WHERE deleted_at IS NULL
+        FOREIGN KEY (sku_id) REFERENCES skus(id)
 );
 
+CREATE UNIQUE INDEX uk_cart_items_cart_sku ON cart_items(cart_id, sku_id) WHERE deleted_at IS NULL;
 CREATE INDEX idx_cart_items_cart ON cart_items(cart_id) WHERE deleted_at IS NULL;
 CREATE INDEX idx_cart_items_sku ON cart_items(sku_id) WHERE deleted_at IS NULL;
-

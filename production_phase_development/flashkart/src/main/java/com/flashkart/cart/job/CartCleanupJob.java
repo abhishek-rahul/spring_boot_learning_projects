@@ -6,6 +6,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -37,6 +38,7 @@ public class CartCleanupJob {
      * Uses distributed lock to ensure only one instance executes.
      */
     @Scheduled(cron = "0 0 * * * ?")
+    @Transactional
     public void cleanupExpiredCarts() {
         String lockToken = null;
         try {
