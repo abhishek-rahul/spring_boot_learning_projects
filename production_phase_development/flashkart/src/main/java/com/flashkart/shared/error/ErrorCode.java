@@ -40,4 +40,17 @@ public enum ErrorCode {
     CART_NOT_FOUND,
     CART_ITEM_NOT_FOUND,
     CART_EXPIRED,
+
+    // order domain
+    ORDER_NOT_FOUND,
+    ORDER_ALREADY_EXISTS,
+    ORDER_INVALID_STATE,
+    CHECKOUT_FAILED,
+
+    // payment domain
+    PAYMENT_INTENT_NOT_FOUND,
+    PAYMENT_INTENT_FAILED,
+
+    // idempotency
+    IDEMPOTENCY_KEY_INVALID,
 }

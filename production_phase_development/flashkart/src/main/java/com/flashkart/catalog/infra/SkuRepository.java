@@ -35,4 +35,10 @@ public interface SkuRepository extends JpaRepository<Sku, UUID> {
            "LEFT JOIN FETCH s.currentPrice " +
            "WHERE s.product.id = :productId AND s.active = true AND s.deletedAt IS NULL")
     List<Sku> findByProductIdWithPrice(@Param("productId") UUID productId);
+
+    // JPQL: find SKU with pessimistic lock for inventory reservation
+    @Query("SELECT s FROM Sku s " +
+           "WHERE s.id = :id AND s.deletedAt IS NULL")
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    Optional<Sku> findByIdForUpdate(@Param("id") UUID id);
 }
