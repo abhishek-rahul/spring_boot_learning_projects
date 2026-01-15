@@ -1,0 +1,165 @@
+@startuml Checkout_Happy
+!theme plain
+skinparam backgroundColor #FFFFFF
+skinparam sequenceArrowThickness 2
+skinparam roundcorner 10
+
+actor Client
+participant "OrderController" as Controller
+participant "IdempotencyService" as Idempotency
+participant "CheckoutService" as Checkout
+participant "CartRepository" as CartRepo
+participant "CartItemRepository" as CartItemRepo
+participant "SkuRepository" as SkuRepo
+participant "OrderRepository" as OrderRepo
+participant "OrderItemRepository" as OrderItemRepo
+participant "InventoryReservationService" as Inventory
+participant "PaymentIntentService" as Payment
+participant "OrderNumberGenerator" as OrderGen
+database "PostgreSQL" as DB
+
+Client -> Controller: POST /api/v1/orders/checkout\n{cartId, idempotencyKey?}
+activate Controller
+
+alt idempotencyKey provided
+    Controller -> Idempotency: getExistingResponse(key, userId, path)
+    activate Idempotency
+    Idempotency -> Idempotency: hashKey(SHA-256)
+    Idempotency -> DB: SELECT idempotency_keys\nWHERE key_hash = ?
+    DB --> Idempotency: Optional<IdempotencyKey>
+    
+    alt existing response found and not expired
+        Idempotency --> Controller: IdempotencyResponse
+        Controller --> Client: 201 Created (cached response)
+        deactivate Idempotency
+        deactivate Controller
+        return
+    else no existing response
+        Idempotency --> Controller: Optional.empty()
+    end
+    deactivate Idempotency
+end
+
+Controller -> Checkout: checkout(userId, cartId)
+activate Checkout
+
+note right of Checkout: @Transactional(READ_COMMITTED)\nrollbackFor = {BusinessException, RuntimeException}
+
+Checkout -> CartRepo: findById(cartId)
+activate CartRepo
+CartRepo -> DB: SELECT carts WHERE id = ?
+DB --> CartRepo: Cart
+CartRepo --> Checkout: Cart
+
+Checkout -> Checkout: validateCart(cart, userId)
+note right of Checkout: Check: ownership, expiry, deleted
+
+Checkout -> CartItemRepo: findByCartId(cartId)
+activate CartItemRepo
+CartItemRepo -> DB: SELECT cart_items WHERE cart_id = ?
+DB --> CartItemRepo: List<CartItem>
+CartItemRepo --> Checkout: List<CartItem>
+
+Checkout -> Checkout: validateCartItemsNotEmpty()
+
+loop for each CartItem
+    Checkout -> SkuRepo: findById(skuId)
+    activate SkuRepo
+    SkuRepo -> DB: SELECT skus WHERE id = ?
+    DB --> SkuRepo: Sku
+    SkuRepo --> Checkout: Sku
+    
+    Checkout -> Checkout: validateSku(sku, quantity)
+    note right of Checkout: Check: active, deleted, availableQuantity
+    
+    Checkout -> Checkout: calculateTotalAmount()
+end
+
+Checkout -> OrderGen: generate()
+activate OrderGen
+OrderGen --> Checkout: "ORD-YYYYMMDD-HHMMSS-UUID"
+deactivate OrderGen
+
+Checkout -> OrderRepo: save(Order)
+activate OrderRepo
+OrderRepo -> DB: INSERT INTO orders\n(id, user_id, order_number, status, ...)
+DB --> OrderRepo: Order
+OrderRepo --> Checkout: Order
+deactivate OrderRepo
+
+loop for each CartItem
+    Checkout -> OrderItemRepo: save(OrderItem)
+    activate OrderItemRepo
+    OrderItemRepo -> DB: INSERT INTO order_items\n(id, order_id, sku_id, quantity, ...)
+    DB --> OrderItemRepo: OrderItem
+    OrderItemRepo --> Checkout: OrderItem
+    deactivate OrderItemRepo
+end
+
+Checkout -> Inventory: reserveInventory(orderId, skuQuantities)
+activate Inventory
+
+note right of Inventory: @Transactional(READ_COMMITTED)
+
+loop for each SKU
+    Inventory -> SkuRepo: findByIdForUpdate(skuId)
+    activate SkuRepo
+    note right of SkuRepo: PESSIMISTIC_WRITE lock
+    SkuRepo -> DB: SELECT skus WHERE id = ? FOR UPDATE
+    DB --> SkuRepo: Sku (locked)
+    SkuRepo --> Inventory: Sku
+    
+    Inventory -> Inventory: validateAvailableQuantity()
+    
+    Inventory -> SkuRepo: save(sku)
+    SkuRepo -> DB: UPDATE skus\nSET reserved_quantity = ?\nWHERE id = ?
+    DB --> SkuRepo: Sku
+    SkuRepo --> Inventory: Sku
+    deactivate SkuRepo
+    
+    Inventory -> DB: INSERT INTO inventory_reservations\n(id, order_id, sku_id, quantity, status, expires_at, ...)
+    DB --> Inventory: InventoryReservation
+end
+
+Inventory --> Checkout: List<InventoryReservation>
+deactivate Inventory
+
+Checkout -> Payment: createPaymentIntent(order)
+activate Payment
+
+note right of Payment: @Transactional
+
+Payment -> Payment: new PaymentIntent(order, amount, currency)
+Payment -> DB: INSERT INTO payment_intents\n(id, order_id, amount, status, ...)
+DB --> Payment: PaymentIntent
+Payment --> Checkout: PaymentIntent
+deactivate Payment
+
+Checkout -> OrderRepo: save(order)
+OrderRepo -> DB: UPDATE orders\nSET status = 'PENDING_PAYMENT'\nWHERE id = ?
+DB --> OrderRepo: Order
+OrderRepo --> Checkout: Order
+deactivate OrderRepo
+
+Checkout --> Controller: Order
+deactivate Checkout
+
+Controller -> Controller: toOrderResponse(order)
+
+alt idempotencyKey provided
+    Controller -> Idempotency: storeResponse(key, userId, path, 201, response)
+    activate Idempotency
+    Idempotency -> Idempotency: hashKey(SHA-256)
+    Idempotency -> DB: INSERT INTO idempotency_keys\n(id, key_hash, user_id, response_body, ...)
+    DB --> Idempotency: IdempotencyKey
+    Idempotency --> Controller: void
+    deactivate Idempotency
+end
+
+Controller --> Client: 201 Created\nApiResponse<OrderResponse>
+
+deactivate Controller
+
+note right of DB: Transaction commits\nAll changes persisted atomically
+
+@enduml
