@@ -1,0 +1,160 @@
+@startuml FlashSale_DataModel
+title FlashSale Application - Data Model (In-Memory Structures)
+
+' NOTE: This application uses IN-MEMORY data structures, not a persistent database.
+' No JPA entities, repositories, or database migrations were found in the codebase.
+' The following diagram represents the logical data model as if it were persisted.
+
+package "Catalog Domain" {
+    entity "CatalogService.cache" as CatalogCache {
+        * sku : String <<PK>>
+        --
+        description : String
+        --
+        Note: HashMap<String, String>\nReadWriteLock for thread safety
+    }
+}
+
+package "Inventory Domain" {
+    entity "InventoryService.stock" as InventoryStock {
+        * sku : String <<PK>>
+        --
+        quantity : Integer
+        --
+        Note: ConcurrentHashMap<String, Integer>
+    }
+    
+    entity "InventoryService.locks" as InventoryLocks {
+        * sku : String <<PK>>
+        --
+        lock : ReentrantLock
+        --
+        Note: ConcurrentHashMap<String, ReentrantLock>\nPer-SKU locking for thread safety
+    }
+    
+    InventoryStock ||--|| InventoryLocks : "1:1\n(same SKU key)"
+}
+
+package "Metrics Domain" {
+    entity "Metrics" as Metrics {
+        * ordersPlaced : AtomicLong
+        * outOfStock : AtomicLong
+        * paymentsFailed : AtomicLong
+        * emailsQueued : AtomicLong
+        * emailQueueDropped : AtomicLong
+        --
+        Note: In-memory atomic counters\nNo persistence
+    }
+}
+
+package "Queue Domain" {
+    entity "EventQueueWorker.queue" as EmailQueue {
+        * jobId : Integer <<PK>> <<AUTO>>
+        --
+        runnable : Runnable
+        status : String
+        --
+        Note: BlockingQueue<Runnable>\nCapacity: 1000\nProcessed by 2 worker threads
+    }
+}
+
+' Relationships
+CatalogCache ||--o{ InventoryStock : "1:N\n(SKU reference)"
+
+note right of CatalogCache
+    **Implementation Details:**
+    - HashMap<String, String>
+    - Protected by ReadWriteLock
+    - Read-heavy workload optimized
+end note
+
+note right of InventoryStock
+    **Implementation Details:**
+    - ConcurrentHashMap<String, Integer>
+    - Thread-safe concurrent access
+    - No persistence (in-memory only)
+end note
+
+note right of InventoryLocks
+    **Implementation Details:**
+    - ConcurrentHashMap<String, ReentrantLock>
+    - Fair locks (true) for ordering
+    - Per-SKU granular locking
+end note
+
+note right of Metrics
+    **Implementation Details:**
+    - AtomicLong counters
+    - Thread-safe atomic operations
+    - Lost on application restart
+end note
+
+note right of EmailQueue
+    **Implementation Details:**
+    - ArrayBlockingQueue<Runnable>
+    - Capacity: 1000
+    - Dropped when full (non-blocking offer)
+end note
+
+@enduml
+
+@startuml FlashSale_DataModel_Assumptions
+title Assumptions and Missing Persistence
+
+package "Missing Components" {
+    entity "No Database Tables" as NoDB {
+        --
+        **ASSUMPTION:** No persistent storage
+        --
+        - No JPA @Entity classes
+        - No Spring Data repositories
+        - No Flyway/Liquibase migrations
+        - No database dependencies in pom.xml
+        --
+        **Impact:**
+        - Data lost on restart
+        - No transaction management
+        - No ACID guarantees
+        - No audit trails
+    }
+    
+    entity "No Order Entity" as NoOrder {
+        --
+        **ASSUMPTION:** Orders not persisted
+        --
+        - OrderService.placeOrder() returns String status
+        - No order ID generation
+        - No order history
+        - No order status tracking
+    }
+    
+    entity "No User Entity" as NoUser {
+        --
+        **ASSUMPTION:** No user management
+        --
+        - No authentication
+        - No user context
+        - No user-specific data
+    }
+    
+    entity "No Payment Entity" as NoPayment {
+        --
+        **ASSUMPTION:** Payment simulation only
+        --
+        - paySimulated() returns boolean
+        - No payment records
+        - No payment gateway integration
+    }
+}
+
+note right of NoDB
+    **Recommendation:**
+    If this were a production system,
+    consider adding:
+    - Order table (id, sku, qty, status, created_at)
+    - Inventory table (sku, quantity, reserved)
+    - Payment table (order_id, amount, status)
+    - Email_log table (order_id, status, sent_at)
+end note
+
+@enduml
