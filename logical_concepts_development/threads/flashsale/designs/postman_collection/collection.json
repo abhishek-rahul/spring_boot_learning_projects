@@ -1,0 +1,361 @@
+{
+    "info": {
+        "name": "flashsale",
+        "postman_id": "9f2d1dbb-2a5c-4f16-9c7d-6b4b0f8d2a11",
+        "description": "Flashsale Spring Boot API",
+        "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+    },
+    "variable": [
+        {
+            "key": "baseUrl",
+            "value": "http://localhost:8081"
+        }
+    ],
+    "item": [
+        {
+            "name": "web",
+            "item": [
+                {
+                    "name": "Place Order",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/orders/place?sku=SKU-1&qty=1",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "orders",
+                                "place"
+                            ],
+                            "query": [
+                                {
+                                    "key": "sku",
+                                    "value": "SKU-1"
+                                },
+                                {
+                                    "key": "qty",
+                                    "value": "1"
+                                }
+                            ]
+                        },
+                        "description": "Expected: string result (ORDER_PLACED | OUT_OF_STOCK | MAINTENANCE_MODE). No auth required."
+                    }
+                },
+                {
+                    "name": "Get Catalog Item",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/catalog/{{sku}}",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "catalog",
+                                "{{sku}}"
+                            ]
+                        },
+                        "description": "Expected: string SKU description. No auth required."
+                    }
+                },
+                {
+                    "name": "Get Inventory Stock",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/inventory/{{sku}}",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "inventory",
+                                "{{sku}}"
+                            ]
+                        },
+                        "description": "Expected: integer stock count. No auth required."
+                    }
+                },
+                {
+                    "name": "Set Maintenance Mode",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/admin/maintenance?on=true",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "admin",
+                                "maintenance"
+                            ],
+                            "query": [
+                                {
+                                    "key": "on",
+                                    "value": "true"
+                                }
+                            ]
+                        },
+                        "description": "Expected: string 'maintenance=true|false'. No auth required."
+                    }
+                },
+                {
+                    "name": "Get Maintenance Mode",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/admin/maintenance",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "admin",
+                                "maintenance"
+                            ]
+                        },
+                        "description": "Expected: boolean maintenance state. No auth required."
+                    }
+                },
+                {
+                    "name": "Get Startup Remaining",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/startup/remaining",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "startup",
+                                "remaining"
+                            ]
+                        },
+                        "description": "Expected: long count of remaining startup steps. No auth required."
+                    }
+                },
+                {
+                    "name": "Get Metrics",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/api/metrics",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "api",
+                                "metrics"
+                            ]
+                        },
+                        "description": "Expected: JSON map of counters. No auth required."
+                    }
+                },
+                {
+                    "name": "Trigger Deadlock",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/debug/deadlock",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "debug",
+                                "deadlock"
+                            ]
+                        },
+                        "description": "Expected: string confirmation. No auth required."
+                    }
+                },
+                {
+                    "name": "Fix Deadlock",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/debug/deadlock/fix",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "debug",
+                                "deadlock",
+                                "fix"
+                            ]
+                        },
+                        "description": "Expected: string confirmation. No auth required."
+                    }
+                },
+                {
+                    "name": "Load Test Setup",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/loadtest/setup?users=10",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "loadtest",
+                                "setup"
+                            ],
+                            "query": [
+                                {
+                                    "key": "users",
+                                    "value": "10"
+                                }
+                            ]
+                        },
+                        "description": "Expected: string confirmation. No auth required."
+                    }
+                },
+                {
+                    "name": "Load Test Run",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": {
+                            "raw": "{{baseUrl}}/loadtest/run?users=10&sku=SKU-1&qty=1",
+                            "host": [
+                                "{{baseUrl}}"
+                            ],
+                            "path": [
+                                "loadtest",
+                                "run"
+                            ],
+                            "query": [
+                                {
+                                    "key": "users",
+                                    "value": "10"
+                                },
+                                {
+                                    "key": "sku",
+                                    "value": "SKU-1"
+                                },
+                                {
+                                    "key": "qty",
+                                    "value": "1"
+                                }
+                            ]
+                        },
+                        "description": "Expected: summary string with ok/oos/maint/other counts. No auth required."
+                    }
+                }
+            ]
+        }
+    ]
+}

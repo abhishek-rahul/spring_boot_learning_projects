@@ -1,0 +1,404 @@
+@startuml OrderPlacement_HappyPath
+title Order Placement - Happy Path
+
+actor Client
+participant "ApiController" as Controller
+participant "StartupGate" as Gate
+participant "OrderService" as Order
+participant "InventoryService" as Inventory
+participant "orderExecutor\n(ThreadPool)" as OrderExec
+participant "ioExecutor\n(ThreadPool)" as IOExec
+participant "EventQueueWorker" as Queue
+participant "Metrics" as Metrics
+
+Client -> Controller: POST /api/orders/place?sku=SKU-1&qty=1
+Controller -> Gate: awaitReady()
+Gate --> Controller: Ready (CountDownLatch)
+Controller -> Order: placeOrder(sku, qty)
+activate Order
+
+alt Maintenance Mode Check
+    Order -> Order: check maintenanceMode
+    note right: if maintenanceMode == true\nreturn "MAINTENANCE_MODE"
+end
+
+Order -> OrderExec: supplyAsync(() -> inventory.reserve())
+activate OrderExec
+OrderExec -> Inventory: reserve(sku, qty)
+activate Inventory
+Inventory -> Inventory: lock per SKU (ReentrantLock)
+Inventory -> Inventory: check stock >= qty
+Inventory -> Inventory: stock.put(sku, available - qty)
+Inventory --> OrderExec: return true
+deactivate Inventory
+OrderExec --> Order: reserved = true
+deactivate OrderExec
+
+Order -> IOExec: supplyAsync(() -> paySimulated())
+activate IOExec
+IOExec -> IOExec: Thread.sleep(80ms)
+IOExec --> Order: paymentOk = true
+deactivate IOExec
+
+Order -> Metrics: ordersPlaced.incrementAndGet()
+Order -> Queue: submit(() -> sendEmailSimulated())
+activate Queue
+Queue -> Queue: queue.offer(job)
+Queue -> Metrics: emailsQueued.incrementAndGet()
+Queue -> Queue: Worker thread processes email
+Queue -> Queue: Thread.sleep(200ms)
+deactivate Queue
+
+Order --> Controller: CompletableFuture<String> "ORDER_PLACED"
+deactivate Order
+Controller --> Client: 200 OK "ORDER_PLACED"
+@enduml
+
+@startuml OrderPlacement_OutOfStock
+title Order Placement - Out of Stock Failure
+
+actor Client
+participant "ApiController" as Controller
+participant "StartupGate" as Gate
+participant "OrderService" as Order
+participant "InventoryService" as Inventory
+participant "orderExecutor\n(ThreadPool)" as OrderExec
+participant "Metrics" as Metrics
+
+Client -> Controller: POST /api/orders/place?sku=SKU-1&qty=1000
+Controller -> Gate: awaitReady()
+Gate --> Controller: Ready
+Controller -> Order: placeOrder(sku, qty)
+activate Order
+
+Order -> Order: check maintenanceMode == false
+Order -> OrderExec: supplyAsync(() -> inventory.reserve())
+activate OrderExec
+OrderExec -> Inventory: reserve(sku, qty)
+activate Inventory
+Inventory -> Inventory: lock per SKU
+Inventory -> Inventory: available = stock.getOrDefault(sku, 0)
+Inventory -> Inventory: if (available < qty) return false
+Inventory --> OrderExec: return false
+deactivate Inventory
+OrderExec --> Order: reserved = false
+deactivate OrderExec
+
+Order -> Metrics: outOfStock.incrementAndGet()
+Order --> Controller: CompletableFuture<String> "OUT_OF_STOCK"
+deactivate Order
+Controller --> Client: 200 OK "OUT_OF_STOCK"
+@enduml
+
+@startuml OrderPlacement_PaymentFailed
+title Order Placement - Payment Failed
+
+actor Client
+participant "ApiController" as Controller
+participant "OrderService" as Order
+participant "InventoryService" as Inventory
+participant "orderExecutor\n(ThreadPool)" as OrderExec
+participant "ioExecutor\n(ThreadPool)" as IOExec
+participant "Metrics" as Metrics
+
+Client -> Controller: POST /api/orders/place?sku=SKU-1&qty=1
+Controller -> Order: placeOrder(sku, qty)
+activate Order
+
+Order -> OrderExec: supplyAsync(() -> inventory.reserve())
+activate OrderExec
+OrderExec -> Inventory: reserve(sku, qty)
+Inventory --> OrderExec: return true
+deactivate OrderExec
+
+Order -> IOExec: supplyAsync(() -> paySimulated())
+activate IOExec
+alt Payment Simulation Failure
+    IOExec -> IOExec: Thread.sleep(80ms)
+    IOExec -> IOExec: return false (simulated failure)
+end
+IOExec --> Order: paymentOk = false
+deactivate IOExec
+
+Order -> Metrics: paymentsFailed.incrementAndGet()
+note right: Inventory already reserved\nbut payment failed\n(No rollback in current implementation)
+Order --> Controller: CompletableFuture<String> "PAYMENT_FAILED"
+deactivate Order
+Controller --> Client: 200 OK "PAYMENT_FAILED"
+@enduml
+
+@startuml OrderPlacement_MaintenanceMode
+title Order Placement - Maintenance Mode
+
+actor Client
+participant "ApiController" as Controller
+participant "OrderService" as Order
+
+Client -> Controller: POST /api/orders/place?sku=SKU-1&qty=1
+Controller -> Order: placeOrder(sku, qty)
+activate Order
+
+Order -> Order: check maintenanceMode
+alt Maintenance Mode Active
+    Order -> Order: return CompletableFuture.completedFuture("MAINTENANCE_MODE")
+end
+
+Order --> Controller: CompletableFuture<String> "MAINTENANCE_MODE"
+deactivate Order
+Controller --> Client: 200 OK "MAINTENANCE_MODE"
+@enduml
+
+@startuml CatalogLookup_HappyPath
+title Catalog Lookup - Happy Path
+
+actor Client
+participant "ApiController" as Controller
+participant "StartupGate" as Gate
+participant "CatalogService" as Catalog
+
+Client -> Controller: GET /api/catalog/{sku}
+Controller -> Gate: awaitReady()
+Gate --> Controller: Ready
+Controller -> Catalog: getSkuInfo(sku)
+activate Catalog
+
+Catalog -> Catalog: rw.readLock().lock()
+Catalog -> Catalog: cache.getOrDefault(sku, "UNKNOWN_SKU")
+Catalog -> Catalog: rw.readLock().unlock()
+Catalog --> Controller: String (SKU description)
+deactivate Catalog
+
+Controller --> Client: 200 OK (SKU description)
+@enduml
+
+@startuml InventoryCheck_HappyPath
+title Inventory Check - Happy Path
+
+actor Client
+participant "ApiController" as Controller
+participant "InventoryService" as Inventory
+
+Client -> Controller: GET /api/inventory/{sku}
+Controller -> Inventory: getStock(sku)
+activate Inventory
+
+Inventory -> Inventory: stock.getOrDefault(sku, 0)
+Inventory --> Controller: int (stock quantity)
+deactivate Inventory
+
+Controller --> Client: 200 OK (stock count)
+@enduml
+
+@startuml AdminMaintenance_HappyPath
+title Admin Maintenance Mode Toggle
+
+actor Admin
+participant "ApiController" as Controller
+participant "OrderService" as Order
+
+Admin -> Controller: POST /api/admin/maintenance?on=true
+Controller -> Order: setMaintenanceMode(true)
+activate Order
+Order -> Order: maintenanceMode = true (volatile)
+Order --> Controller: "maintenance=true"
+deactivate Order
+Controller --> Admin: 200 OK "maintenance=true"
+
+Admin -> Controller: GET /api/admin/maintenance
+Controller -> Order: isMaintenanceMode()
+Order --> Controller: boolean true
+Controller --> Admin: 200 OK true
+@enduml
+
+@startuml LoadTest_HappyPath
+title Load Test - Happy Path
+
+actor Tester
+participant "LoadTestController" as Controller
+participant "FlashSaleGate" as Gate
+participant "OrderService" as Order
+participant "orderExecutor\n(ThreadPool)" as OrderExec
+
+Tester -> Controller: POST /loadtest/setup?users=10
+Controller -> Gate: createBarrier(10)
+activate Gate
+Gate -> Gate: new CyclicBarrier(10)
+Gate --> Controller: "Barrier created for users=10"
+deactivate Gate
+Controller --> Tester: 200 OK
+
+Tester -> Controller: POST /loadtest/run?users=10&sku=SKU-1&qty=1
+Controller -> Controller: Create 10 CompletableFuture tasks
+loop For each user (i=0 to 9)
+    Controller -> OrderExec: supplyAsync(() -> { gate.awaitStart(); return orderService.placeOrder(); })
+    activate OrderExec
+    OrderExec -> Gate: awaitStart()
+    activate Gate
+    note right: All 10 threads wait\non CyclicBarrier
+    Gate -> Gate: await() - blocks until all 10 arrive
+    Gate --> OrderExec: All threads released simultaneously
+    deactivate Gate
+    OrderExec -> Order: placeOrder(sku, qty)
+    Order --> OrderExec: CompletableFuture<String>
+    OrderExec --> Controller: Result
+    deactivate OrderExec
+end
+
+Controller -> Controller: CompletableFuture.allOf(results).get(30s)
+Controller -> Controller: Aggregate results (ok, oos, maint, other)
+Controller --> Tester: 200 OK "DONE users=10 ok=X oos=Y maint=Z other=W"
+@enduml
+
+@startuml StartupFlow_HappyPath
+title Startup Flow - Initialization
+
+participant "ApiController\n@PostConstruct" as Controller
+participant "StartupGate" as Gate
+participant "CatalogService" as Catalog
+participant "InventoryService" as Inventory
+
+== Application Startup ==
+
+Controller -> Gate: markDbReady()
+activate Gate
+Gate -> Gate: readyLatch.countDown() (3 -> 2)
+deactivate Gate
+
+Controller -> Catalog: updateSkuInfo("SKU-1", "FlashSale Phone")
+activate Catalog
+Catalog -> Catalog: rw.writeLock().lock()
+Catalog -> Catalog: cache.put(sku, info)
+Catalog -> Catalog: rw.writeLock().unlock()
+deactivate Catalog
+
+Controller -> Gate: markCacheReady()
+activate Gate
+Gate -> Gate: readyLatch.countDown() (2 -> 1)
+deactivate Gate
+
+Controller -> Inventory: seed("SKU-1", 100)
+activate Inventory
+Inventory -> Inventory: stock.put(sku, 100)
+deactivate Inventory
+
+Controller -> Gate: markWarmupReady()
+activate Gate
+Gate -> Gate: readyLatch.countDown() (1 -> 0)
+note right: All startup steps complete\nAPI ready to accept requests
+deactivate Gate
+@enduml
+
+@startuml EmailQueue_HappyPath
+title Email Queue Processing - Background Worker
+
+participant "OrderService" as Order
+participant "EventQueueWorker" as Queue
+participant "Worker Thread" as Worker
+participant "Metrics" as Metrics
+
+== Order Placement Triggers Email ==
+
+Order -> Queue: submit(() -> sendEmailSimulated(sku, qty))
+activate Queue
+Queue -> Queue: queue.offer(job)
+alt Queue Not Full
+    Queue -> Metrics: emailsQueued.incrementAndGet()
+    Queue --> Order: return true
+else Queue Full
+    Queue -> Metrics: emailQueueDropped.incrementAndGet()
+    Queue --> Order: return false
+end
+deactivate Queue
+
+== Background Worker Processing ==
+
+Worker -> Queue: queue.take() (blocks if empty)
+activate Worker
+Queue --> Worker: Runnable job
+
+Worker -> Worker: job.run() -> sendEmailSimulated()
+Worker -> Worker: Thread.sleep(200ms)
+Worker -> Queue: Continue polling
+deactivate Worker
+@enduml
+
+@startuml DebugDeadlock_HappyPath
+title Debug Deadlock - Demonstration
+
+actor Tester
+participant "DebugController" as Controller
+participant "Thread-1" as T1
+participant "Thread-2" as T2
+participant "Object A" as A
+participant "Object B" as B
+
+Tester -> Controller: POST /debug/deadlock
+Controller -> Controller: Create Thread-1 and Thread-2
+
+== Thread-1 Execution ==
+Controller -> T1: start()
+activate T1
+T1 -> A: synchronized(A)
+activate A
+T1 -> T1: sleep(50ms)
+T1 -> B: synchronized(B) [BLOCKS]
+note right: Waiting for Thread-2\nto release lock on B
+
+== Thread-2 Execution ==
+Controller -> T2: start()
+activate T2
+T2 -> B: synchronized(B)
+activate B
+T2 -> T2: sleep(50ms)
+T2 -> A: synchronized(A) [BLOCKS]
+note right: Waiting for Thread-1\nto release lock on A
+
+== Deadlock State ==
+note over T1, T2: DEADLOCK: Both threads waiting\nfor each other's locks
+
+Controller --> Tester: 200 OK "Triggered deadlock threads. Use jstack to confirm."
+@enduml
+
+@startuml DebugDeadlockFix_HappyPath
+title Debug Deadlock - Fix (Consistent Lock Ordering)
+
+actor Tester
+participant "DebugController" as Controller
+participant "Thread-1" as T1
+participant "Thread-2" as T2
+participant "Object A" as A
+participant "Object B" as B
+
+Tester -> Controller: POST /debug/deadlock/fix
+Controller -> Controller: Create Thread-1 and Thread-2\nBoth use lockInOrder(A, B)
+
+== Thread-1 Execution ==
+Controller -> T1: start()
+activate T1
+T1 -> A: synchronized(A)
+activate A
+T1 -> T1: sleep(50ms)
+T1 -> B: synchronized(B)
+activate B
+T1 -> T1: Complete execution
+deactivate B
+deactivate A
+deactivate T1
+
+== Thread-2 Execution ==
+Controller -> T2: start()
+activate T2
+T2 -> A: synchronized(A) [waits for T1 to release]
+activate A
+T2 -> T2: sleep(50ms)
+T2 -> B: synchronized(B)
+activate B
+T2 -> T2: Complete execution
+deactivate B
+deactivate A
+deactivate T2
+
+note over T1, T2: No deadlock: Both threads\nacquire locks in same order (A then B)
+
+Controller --> Tester: 200 OK "Deadlock fixed by consistent lock ordering (A then B)."
+@enduml
